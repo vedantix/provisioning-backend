@@ -1,0 +1,104 @@
+name: Deploy provisioning backend
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-west-1
+  ECR_REPOSITORY: provisioning-backend
+  APP_RUNNER_SERVICE_NAME: vedantix-provisioning-api
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve AWS account ID
+        id: aws-account
+        run: |
+          echo "account_id=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_OUTPUT"
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image URI
+        id: image
+        run: |
+          IMAGE_URI=${{ steps.aws-account.outputs.account_id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          LATEST_URI=${{ steps.aws-account.outputs.account_id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:latest
+          echo "image_uri=$IMAGE_URI" >> "$GITHUB_OUTPUT"
+          echo "latest_uri=$LATEST_URI" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push linux/amd64 image
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            -t "${{ steps.image.outputs.image_uri }}" \
+            -t "${{ steps.image.outputs.latest_uri }}" \
+            --push .
+
+      - name: Resolve App Runner service ARN
+        id: apprunner
+        run: |
+          SERVICE_ARN=$(aws apprunner list-services \
+            --region "${AWS_REGION}" \
+            --query "ServiceSummaryList[?ServiceName=='${APP_RUNNER_SERVICE_NAME}'].ServiceArn | [0]" \
+            --output text)
+
+          if [ -z "$SERVICE_ARN" ] || [ "$SERVICE_ARN" = "None" ]; then
+            echo "App Runner service not found: ${APP_RUNNER_SERVICE_NAME}"
+            exit 1
+          fi
+
+          echo "service_arn=$SERVICE_ARN" >> "$GITHUB_OUTPUT"
+
+      - name: Start App Runner deployment
+        run: |
+          aws apprunner start-deployment \
+            --service-arn "${{ steps.apprunner.outputs.service_arn }}" \
+            --region "${AWS_REGION}"
+
+      - name: Wait for App Runner to become RUNNING
+        run: |
+          for i in {1..40}; do
+            STATUS=$(aws apprunner describe-service \
+              --service-arn "${{ steps.apprunner.outputs.service_arn }}" \
+              --region "${AWS_REGION}" \
+              --query "Service.Status" \
+              --output text)
+
+            echo "Current status: $STATUS"
+
+            if [ "$STATUS" = "RUNNING" ]; then
+              exit 0
+            fi
+
+            if [ "$STATUS" = "CREATE_FAILED" ] || [ "$STATUS" = "DELETE_FAILED" ] || [ "$STATUS" = "PAUSED" ]; then
+              echo "App Runner entered failure state: $STATUS"
+              exit 1
+            fi
+
+            sleep 15
+          done
+
+          echo "Timed out waiting for App Runner deployment"
+          exit 1
