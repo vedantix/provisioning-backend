@@ -1,7 +1,8 @@
 import { createRepository, createFile, repositoryExists } from './github.service';
 import {
   generateIndexHtml,
-  generatePackageJson
+  generatePackageJson,
+  generateBuildScript
 } from '../template/site-template.service';
 import { generateDeployWorkflow } from '../template/workflow-template';
 
@@ -30,6 +31,13 @@ export async function provisionRepository(repo: string, domain: string) {
       path: 'package.json',
       content: generatePackageJson(),
       message: 'init: add package.json'
+    });
+
+    await createFile({
+      repo,
+      path: 'scripts/build.js',
+      content: generateBuildScript(),
+      message: 'init: add build script'
     });
 
     await createFile({
