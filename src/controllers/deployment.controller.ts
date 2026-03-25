@@ -60,7 +60,7 @@ export async function deployController(req: Request, res: Response) {
 
     return res.status(500).json({
       success: false,
-      error: 'Internal server error'
+      error: error instanceof Error ? error.message : 'Internal server error'
     });
   }
 }
@@ -86,7 +86,7 @@ export async function checkDomainController(req: Request, res: Response) {
 
     return res.status(500).json({
       success: false,
-      error: 'Internal server error'
+      error: error instanceof Error ? error.message : 'Internal server error'
     });
   }
 }

@@ -28,10 +28,10 @@ export async function createRepository(repo: string) {
     };
   }
 
-  const result = await octokit.repos.createForAuthenticatedUser({
+  const result = await octokit.repos.createInOrg({
+    org: env.githubOwner,
     name: repo,
-    private: true,
-    auto_init: false
+    private: true
   });
 
   return {
@@ -75,14 +75,10 @@ export async function dispatchDeploymentWorkflow(params: {
   const { repo, bucket, distributionId } = params;
 
   try {
-    console.log(`[GitHub] Dispatch start for repo: ${repo}`);
-
     await octokit.repos.get({
       owner: env.githubOwner,
       repo
     });
-
-    console.log(`[GitHub] Repo exists: ${repo}`);
 
     const workflows = await getRepoWorkflows(repo);
 
@@ -94,12 +90,12 @@ export async function dispatchDeploymentWorkflow(params: {
     );
 
     if (!workflow) {
-      throw new Error(
-        `[GitHub] Workflow not found in repo ${repo}. Expected deploy-static-site.yml or deploy.yml`
-      );
+      return {
+        success: false,
+        stage: 'GITHUB_DISPATCH',
+        error: `Workflow not found in repo ${repo}`
+      };
     }
-
-    console.log(`[GitHub] Found workflow: ${workflow.name}`);
 
     await octokit.actions.createWorkflowDispatch({
       owner: env.githubOwner,
@@ -112,18 +108,14 @@ export async function dispatchDeploymentWorkflow(params: {
       }
     });
 
-    console.log('[GitHub] Workflow dispatched successfully');
-
     return {
       success: true
     };
   } catch (error: any) {
-    console.error('[GitHub] Dispatch failed:', error.message);
-
     return {
       success: false,
       stage: 'GITHUB_DISPATCH',
-      error: error.message
+      error: error?.message ?? 'GitHub dispatch failed'
     };
   }
 }
