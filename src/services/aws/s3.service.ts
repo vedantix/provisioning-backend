@@ -18,16 +18,26 @@ export async function createCustomerBucket(bucketName: string) {
   if (!exists) {
     console.log(`[S3] Creating bucket: ${bucketName}`);
 
-    await s3.send(
-      new CreateBucketCommand({
-        Bucket: bucketName,
-        ...(env.awsRegion !== 'us-east-1' && {
-          CreateBucketConfiguration: {
-            LocationConstraint: env.awsRegion as BucketLocationConstraint
-          }
+    try {
+      await s3.send(
+        new CreateBucketCommand({
+          Bucket: bucketName,
+          ...(env.awsRegion !== 'us-east-1' && {
+            CreateBucketConfiguration: {
+              LocationConstraint: env.awsRegion as BucketLocationConstraint
+            }
+          })
         })
-      })
-    );
+      );
+    } catch (err: any) {
+      const code = err?.name || err?.Code;
+
+      if (code !== 'BucketAlreadyOwnedByYou' && code !== 'BucketAlreadyExists') {
+        throw err;
+      }
+
+      console.log(`[S3] Bucket already existed during create: ${bucketName}`);
+    }
   } else {
     console.log(`[S3] Bucket already exists: ${bucketName}`);
   }
@@ -89,9 +99,22 @@ async function bucketExists(bucketName: string): Promise<boolean> {
     await s3.send(new HeadBucketCommand({ Bucket: bucketName }));
     return true;
   } catch (err: any) {
-    if (err?.$metadata?.httpStatusCode === 404) {
+    const code = err?.name || err?.Code;
+    const status = err?.$metadata?.httpStatusCode;
+
+    if (
+      status === 404 ||
+      code === 'NotFound' ||
+      code === 'NoSuchBucket'
+    ) {
       return false;
     }
-    return false;
+
+    if (code === 'Forbidden' || status === 403) {
+      console.warn(`[S3] HeadBucket returned 403 for ${bucketName}, assuming it exists`);
+      return true;
+    }
+
+    throw err;
   }
 }

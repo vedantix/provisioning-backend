@@ -57,3 +57,31 @@ export async function getCertificateStatus(certificateArn: string) {
 
   return result.Certificate?.Status ?? 'UNKNOWN';
 }
+
+export async function waitForCertificateIssued(
+  certificateArn: string,
+  maxAttempts = 40,
+  delayMs = 15000
+) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const status = await getCertificateStatus(certificateArn);
+
+    console.log(`[ACM] Certificate status attempt ${attempt}: ${status}`);
+
+    if (status === 'ISSUED') {
+      return;
+    }
+
+    if (status === 'FAILED' || status === 'EXPIRED' || status === 'REVOKED') {
+      throw new Error(`Certificate moved to terminal status: ${status}`);
+    }
+
+    await sleep(delayMs);
+  }
+
+  throw new Error('Timed out waiting for ACM certificate to become ISSUED');
+}
+
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}

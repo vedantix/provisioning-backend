@@ -11,7 +11,8 @@ import {
 import { createCustomerBucket } from '../aws/s3.service';
 import {
   requestCertificate,
-  getCertificateValidationRecords
+  getCertificateValidationRecords,
+  waitForCertificateIssued
 } from '../aws/acm.service';
 import {
   upsertDnsValidationRecord,
@@ -62,7 +63,7 @@ export async function deploySite(params: {
     await upsertDnsValidationRecord(record.name, record.type, record.value);
   }
 
-  await sleep(15000);
+  await waitForCertificateIssued(certificateArn);
 
   const distributionDomains = toRootAndWwwDomains(domain);
 
