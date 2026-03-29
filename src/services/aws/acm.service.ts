@@ -1,7 +1,8 @@
 import {
   ACMClient,
   RequestCertificateCommand,
-  DescribeCertificateCommand
+  DescribeCertificateCommand,
+  DeleteCertificateCommand
 } from '@aws-sdk/client-acm';
 import { env } from '../../config/env';
 
@@ -84,4 +85,35 @@ export async function waitForCertificateIssued(
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+export async function deleteCertificateIfExists(params: {
+  certificateArn: string;
+}): Promise<{
+  certificateArn: string;
+  deleted: boolean;
+}> {
+  try {
+    await acm.send(
+      new DeleteCertificateCommand({
+        CertificateArn: params.certificateArn
+      })
+    );
+
+    return {
+      certificateArn: params.certificateArn,
+      deleted: true
+    };
+  } catch (error: any) {
+    const code = error?.name || error?.Code;
+
+    if (code === 'ResourceNotFoundException') {
+      return {
+        certificateArn: params.certificateArn,
+        deleted: false
+      };
+    }
+
+    throw error;
+  }
 }
