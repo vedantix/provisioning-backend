@@ -1,112 +1,113 @@
-import crypto from 'node:crypto';
-import { resolvePlan } from '../plan/plan-resolver.service';
-import { checkDomainAvailability } from '../domain/domain-check.service';
-import { provisionRepository } from '../github/github-provision.service';
+import crypto from "crypto";
+
+import { checkDomainAvailability } from "../domain/domain-check.service";
+import { provisionRepository } from "../github/github-provision.service";
+import { dispatchDeploymentWorkflow } from "../github/github.service";
+import { resolvePlan } from "../plan/plan-resolver.service";
+
 import {
-  ensureValidDomain,
-  buildBucketNameFromDomain,
-  buildCertificateDomains,
-  toRootAndWwwDomains
-} from '../../utils/domain.util';
-import {
-  buildBucketRegionalDomainName,
   createCustomerBucket,
-  ensureCloudFrontReadAccess
-} from '../aws/s3.service';
+  ensureCloudFrontReadAccess,
+} from "../aws/s3.service";
 import {
   requestCertificate,
   getCertificateValidationRecords,
-  waitForCertificateIssued
-} from '../aws/acm.service';
+  waitForCertificateIssued,
+} from "../aws/acm.service";
 import {
   upsertDnsValidationRecord,
-  upsertCloudFrontAliasRecords
-} from '../aws/route53.service';
-import { createDistribution } from '../aws/cloudfront.service';
-import { dispatchDeploymentWorkflow } from '../github/github.service';
+  upsertCloudFrontAliasRecords,
+} from "../aws/route53.service";
+import { createDistribution } from "../aws/cloudfront.service";
 import {
-  getDeploymentById,
-  getJobById,
   putDeployment,
   putJob,
   updateDeployment,
-  updateJob
-} from '../aws/dynamodb.service';
-import { queueJob } from '../aws/sqs.service';
-import { PackageCode, AddOnInput } from '../../types/package.types';
+  updateJob,
+  getJobById,
+} from "../aws/dynamodb.service";
+import { queueJob } from "../aws/sqs.service";
 
-type DeployStage =
-  | 'DOMAIN_CHECK'
-  | 'GITHUB_PROVISION'
-  | 'S3_BUCKET'
-  | 'ACM_REQUEST'
-  | 'ACM_VALIDATION_RECORDS'
-  | 'ACM_WAIT'
-  | 'CLOUDFRONT'
-  | 'ROUTE53_ALIAS'
-  | 'GITHUB_DISPATCH'
-  | 'DYNAMODB'
-  | 'SQS';
+import {
+  ensureValidDomain,
+  normalizeDomain,
+  buildBucketNameFromDomain,
+  buildCertificateDomains,
+  toRootAndWwwDomains,
+} from "../../utils/domain.util";
 
-type StageStatus = 'PENDING' | 'IN_PROGRESS' | 'SUCCEEDED' | 'FAILED' | 'SKIPPED';
+import type {
+  AddOnInput,
+  PackageCode,
+  ResolvedPlan,
+} from "../../types/package.types";
 
-type StageRecord = {
-  stage: DeployStage;
-  status: StageStatus;
-  startedAt: string;
-  completedAt?: string;
-  error?: string;
-  details?: unknown;
-};
+export type JobStatus =
+  | "QUEUED"
+  | "RUNNING"
+  | "FAILED"
+  | "SUCCEEDED"
+  | "DELETED";
 
-type DeployFailure = {
-  success: false;
-  stage: DeployStage;
-  error: string;
-  details?: unknown;
-  deploymentId: string;
-  jobId: string;
-  stages: StageRecord[];
-};
+export type DeploymentStatus =
+  | "QUEUED"
+  | "RUNNING"
+  | "FAILED"
+  | "SUCCEEDED"
+  | "DELETED";
 
-type DeploySuccess = {
-  success: true;
-  deploymentId: string;
-  jobId: string;
-  bucket: string;
-  distributionId: string;
-  cloudFrontDomainName: string;
-  certificateArn: string;
-  domains: string[];
-  plan: unknown;
-  repo: string;
-  stages: StageRecord[];
-};
+export type DeployStage =
+  | "DOMAIN_CHECK"
+  | "GITHUB_PROVISION"
+  | "S3_BUCKET"
+  | "ACM_REQUEST"
+  | "ACM_VALIDATION_RECORDS"
+  | "ACM_WAIT"
+  | "CLOUDFRONT"
+  | "ROUTE53_ALIAS"
+  | "GITHUB_DISPATCH"
+  | "DYNAMODB"
+  | "SQS";
 
-type DeployResult = DeploySuccess | DeployFailure;
-
-type DeployRuntimeState = {
-  deploymentId: string;
-  jobId: string;
+export interface DeployRequest {
   customerId: string;
-  repo: string;
+  projectName: string;
   domain: string;
-  distributionDomains: string[];
-  bucket: string;
   packageCode: PackageCode;
-  addOns: AddOnInput[];
-  certificateArn?: string;
-  distribution?: {
-    distributionId: string;
-    domainName: string;
-    arn?: string;
-  };
-  plan: unknown;
-  stages: StageRecord[];
-};
+  addOns?: AddOnInput[];
+  initiatedBy?: string;
+  metadata?: Record<string, unknown>;
+}
+
+interface DeploymentEvent {
+  type:
+    | "DEPLOYMENT_CREATED"
+    | "STAGE_STARTED"
+    | "STAGE_COMPLETED"
+    | "DEPLOYMENT_FAILED"
+    | "DEPLOYMENT_SUCCEEDED";
+  stage?: DeployStage;
+  failedStage?: DeployStage;
+  message?: string;
+  domain: string;
+  repo?: string;
+  at: string;
+  details?: Record<string, unknown>;
+}
+
+interface PersistContext {
+  deploymentId: string;
+  jobId: string;
+  domain: string;
+  repo: string;
+}
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function createId(prefix: string): string {
+  return `${prefix}_${crypto.randomUUID()}`;
 }
 
 function toErrorMessage(error: unknown): string {
@@ -114,713 +115,512 @@ function toErrorMessage(error: unknown): string {
     return error.message;
   }
 
-  if (typeof error === 'string') {
-    return error;
-  }
-
-  return 'Unknown error';
+  return String(error);
 }
 
-function toSerializableError(error: unknown): unknown {
+function toErrorDetails(error: unknown): Record<string, unknown> {
   if (error instanceof Error) {
     return {
       name: error.name,
       message: error.message,
-      stack: error.stack
+      stack: error.stack,
     };
   }
 
-  return error;
-}
-
-function createStageRecord(stage: DeployStage): StageRecord {
   return {
-    stage,
-    status: 'IN_PROGRESS',
-    startedAt: nowIso()
+    message: String(error),
   };
 }
 
-function buildFailure(
-  state: DeployRuntimeState,
+async function markStageRunning(
+  ctx: PersistContext,
+  stage: DeployStage,
+  extra?: Record<string, unknown>
+): Promise<void> {
+  const at = nowIso();
+
+  await Promise.all([
+    updateDeployment({
+      deploymentId: ctx.deploymentId,
+      set: {
+        status: "RUNNING" as DeploymentStatus,
+        currentStage: stage,
+        updatedAt: at,
+        ...extra,
+      },
+      appendToLists: {
+        deploymentEvents: [
+          {
+            type: "STAGE_STARTED",
+            stage,
+            domain: ctx.domain,
+            repo: ctx.repo,
+            at,
+          } as DeploymentEvent,
+        ],
+      },
+    }),
+    updateJob({
+      jobId: ctx.jobId,
+      set: {
+        status: "RUNNING" as JobStatus,
+        currentStage: stage,
+        updatedAt: at,
+        ...extra,
+      },
+    }),
+  ]);
+}
+
+async function markStageCompleted(
+  ctx: PersistContext,
+  stage: DeployStage,
+  extra?: Record<string, unknown>
+): Promise<void> {
+  const at = nowIso();
+
+  await Promise.all([
+    updateDeployment({
+      deploymentId: ctx.deploymentId,
+      set: {
+        currentStage: stage,
+        updatedAt: at,
+        ...extra,
+      },
+      appendToLists: {
+        deploymentEvents: [
+          {
+            type: "STAGE_COMPLETED",
+            stage,
+            domain: ctx.domain,
+            repo: ctx.repo,
+            at,
+          } as DeploymentEvent,
+        ],
+      },
+    }),
+    updateJob({
+      jobId: ctx.jobId,
+      set: {
+        currentStage: stage,
+        updatedAt: at,
+        ...extra,
+      },
+    }),
+  ]);
+}
+
+async function markDeploymentFailed(
+  ctx: PersistContext,
   stage: DeployStage,
   error: unknown,
-  details?: unknown
-): DeployFailure {
-  return {
-    success: false,
-    stage,
-    error: toErrorMessage(error),
-    ...(details !== undefined ? { details } : {}),
-    deploymentId: state.deploymentId,
-    jobId: state.jobId,
-    stages: state.stages
-  };
-}
-
-async function runStage<T>(
-  state: DeployRuntimeState,
-  stage: DeployStage,
-  executor: () => Promise<T>
-): Promise<{ ok: true; value: T } | { ok: false; failure: DeployFailure }> {
-  const stageRecord = createStageRecord(stage);
-  state.stages.push(stageRecord);
-
-  try {
-    const value = await executor();
-
-    stageRecord.status = 'SUCCEEDED';
-    stageRecord.completedAt = nowIso();
-
-    if (value !== undefined) {
-      stageRecord.details = value;
-    }
-
-    return { ok: true, value };
-  } catch (error) {
-    stageRecord.status = 'FAILED';
-    stageRecord.completedAt = nowIso();
-    stageRecord.error = toErrorMessage(error);
-    stageRecord.details = toSerializableError(error);
-
-    return {
-      ok: false,
-      failure: buildFailure(state, stage, error, stageRecord.details)
-    };
-  }
-}
-
-async function persistFailureState(
-  state: DeployRuntimeState,
-  failedStage: DeployStage,
-  failure: DeployFailure
+  extra?: Record<string, unknown>
 ): Promise<void> {
-  const timestamp = nowIso();
+  const at = nowIso();
+  const errorMessage = toErrorMessage(error);
+  const errorDetails = toErrorDetails(error);
 
-  try {
-    const existingDeployment = await getDeploymentById(state.deploymentId);
-
-    if (!existingDeployment) {
-      await putDeployment({
-        id: state.deploymentId,
-        customerId: state.customerId,
-        deploymentType: 'INITIAL_DEPLOY',
-        status: 'FAILED',
-        currentStage: failedStage,
-        currentPackageCode: state.packageCode,
-        addOns: state.addOns,
-        repo: state.repo,
-        bucketName: state.bucket,
-        cloudfrontDistributionId: state.distribution?.distributionId,
-        cloudfrontDomainName: state.distribution?.domainName,
-        certificateArn: state.certificateArn,
-        planSnapshot: state.plan,
-        domains: state.distributionDomains,
-        stages: state.stages,
-        lastError: failure.error,
-        lastErrorDetails: failure.details,
-        createdAt: timestamp,
-        updatedAt: timestamp,
+  await Promise.all([
+    updateDeployment({
+      deploymentId: ctx.deploymentId,
+      set: {
+        status: "FAILED" as DeploymentStatus,
+        currentStage: stage,
+        failureReason: errorMessage,
+        lastError: errorMessage,
+        lastErrorDetails: errorDetails,
+        updatedAt: at,
+        ...extra,
+      },
+      appendToLists: {
         deploymentEvents: [
           {
-            type: 'INITIAL_DEPLOY_FAILED',
-            failedStage,
-            repo: state.repo,
-            domain: state.domain,
-            at: timestamp
-          }
-        ]
-      });
-    } else {
-      await updateDeployment({
-        deploymentId: state.deploymentId,
-        set: {
-          status: 'FAILED',
-          currentStage: failedStage,
-          currentPackageCode: state.packageCode,
-          addOns: state.addOns,
-          repo: state.repo,
-          bucketName: state.bucket,
-          cloudfrontDistributionId: state.distribution?.distributionId,
-          cloudfrontDomainName: state.distribution?.domainName,
-          certificateArn: state.certificateArn,
-          planSnapshot: state.plan,
-          domains: state.distributionDomains,
-          stages: state.stages,
-          lastError: failure.error,
-          lastErrorDetails: failure.details,
-          updatedAt: timestamp
-        },
-        appendToLists: {
-          deploymentEvents: [
-            {
-              type: 'INITIAL_DEPLOY_FAILED',
-              failedStage,
-              repo: state.repo,
-              domain: state.domain,
-              at: timestamp
-            }
-          ]
-        }
-      });
-    }
-  } catch (persistError) {
-    console.error('[DEPLOY] Failed to persist deployment failure state', {
-      deploymentId: state.deploymentId,
-      failedStage,
-      error: toErrorMessage(persistError)
-    });
-  }
+            type: "DEPLOYMENT_FAILED",
+            stage,
+            failedStage: stage,
+            message: errorMessage,
+            domain: ctx.domain,
+            repo: ctx.repo,
+            at,
+            details: errorDetails,
+          } as DeploymentEvent,
+        ],
+      },
+    }),
+    updateJob({
+      jobId: ctx.jobId,
+      set: {
+        status: "FAILED" as JobStatus,
+        currentStage: stage,
+        lastError: errorMessage,
+        lastErrorDetails: errorDetails,
+        updatedAt: at,
+        ...extra,
+      },
+    }),
+  ]);
+}
 
+async function markDeploymentSucceeded(
+  ctx: PersistContext,
+  extra?: Record<string, unknown>
+): Promise<void> {
+  const at = nowIso();
+
+  await Promise.all([
+    updateDeployment({
+      deploymentId: ctx.deploymentId,
+      set: {
+        status: "SUCCEEDED" as DeploymentStatus,
+        currentStage: "SQS" as DeployStage,
+        deployedAt: at,
+        updatedAt: at,
+        ...extra,
+      },
+      appendToLists: {
+        deploymentEvents: [
+          {
+            type: "DEPLOYMENT_SUCCEEDED",
+            stage: "SQS",
+            domain: ctx.domain,
+            repo: ctx.repo,
+            at,
+          } as DeploymentEvent,
+        ],
+      },
+    }),
+    updateJob({
+      jobId: ctx.jobId,
+      set: {
+        status: "SUCCEEDED" as JobStatus,
+        currentStage: "SQS" as DeployStage,
+        completedAt: at,
+        updatedAt: at,
+        ...extra,
+      },
+    }),
+  ]);
+}
+
+async function inferCurrentStageSafe(jobId: string): Promise<DeployStage> {
   try {
-    const existingJob = await getJobById(state.jobId);
-
-    if (!existingJob) {
-      await putJob({
-        id: state.jobId,
-        customerId: state.customerId,
-        deploymentId: state.deploymentId,
-        jobType: 'INITIAL_DEPLOY',
-        status: 'FAILED',
-        payload: {
-          repo: state.repo,
-          domain: state.domain,
-          bucket: state.bucket,
-          distributionId: state.distribution?.distributionId,
-          failedStage,
-          error: failure.error
-        },
-        stages: state.stages,
-        lastError: failure.error,
-        lastErrorDetails: failure.details,
-        createdAt: timestamp,
-        updatedAt: timestamp
-      });
-    } else {
-      await updateJob({
-        jobId: state.jobId,
-        set: {
-          status: 'FAILED',
-          payload: {
-            repo: state.repo,
-            domain: state.domain,
-            bucket: state.bucket,
-            distributionId: state.distribution?.distributionId,
-            failedStage,
-            error: failure.error
-          },
-          stages: state.stages,
-          lastError: failure.error,
-          lastErrorDetails: failure.details,
-          updatedAt: timestamp
-        }
-      });
-    }
-  } catch (persistError) {
-    console.error('[DEPLOY] Failed to persist job failure state', {
-      jobId: state.jobId,
-      failedStage,
-      error: toErrorMessage(persistError)
-    });
+    const job = await getJobById(jobId);
+    return (job?.currentStage as DeployStage | undefined) ?? "DOMAIN_CHECK";
+  } catch {
+    return "DOMAIN_CHECK";
   }
 }
 
-export async function deploySite(params: {
-  customerId: string;
-  repo: string;
-  domain: string;
-  packageCode: PackageCode;
-  addOns: AddOnInput[];
-}): Promise<DeployResult> {
-  const deploymentId = crypto.randomUUID();
-  const jobId = crypto.randomUUID();
+export async function deployWebsite(input: DeployRequest) {
+  const deploymentId = createId("dep");
+  const jobId = createId("job");
+  const createdAt = nowIso();
 
-  let normalizedDomain: string;
-  let distributionDomains: string[];
-  let bucket: string;
-  let plan: unknown;
+  const normalizedDomain = normalizeDomain(input.domain);
+  ensureValidDomain(normalizedDomain);
 
-  try {
-    normalizedDomain = ensureValidDomain(params.domain);
-    distributionDomains = toRootAndWwwDomains(normalizedDomain);
-    bucket = buildBucketNameFromDomain(normalizedDomain);
-    plan = resolvePlan(params.packageCode, params.addOns);
-  } catch (error) {
-    return {
-      success: false,
-      stage: 'DOMAIN_CHECK',
-      error: toErrorMessage(error),
-      details: toSerializableError(error),
-      deploymentId,
-      jobId,
-      stages: []
-    };
-  }
+  const repoName = input.projectName.trim();
+  const addOns = input.addOns ?? [];
+  const bucketName = buildBucketNameFromDomain(normalizedDomain);
+  const certDomains = buildCertificateDomains(normalizedDomain);
+  const allDomains = toRootAndWwwDomains(normalizedDomain);
 
-  const state: DeployRuntimeState = {
+  const plan: ResolvedPlan = resolvePlan(input.packageCode, addOns);
+
+  const ctx: PersistContext = {
     deploymentId,
     jobId,
-    customerId: params.customerId,
-    repo: params.repo,
     domain: normalizedDomain,
-    distributionDomains,
-    bucket,
-    packageCode: params.packageCode,
-    addOns: params.addOns,
-    plan,
-    stages: []
+    repo: repoName,
   };
 
-  console.log('[DEPLOY] Starting deploy', {
+  await putDeployment({
+    id: deploymentId,
     deploymentId,
-    jobId,
-    customerId: params.customerId,
-    repo: params.repo,
-    domain: normalizedDomain,
-    bucket,
-    distributionDomains
+    customerId: input.customerId,
+    deploymentType: "INITIAL_DEPLOY",
+    projectName: repoName,
+    primaryDomain: normalizedDomain,
+    domains: allDomains,
+    packageCode: input.packageCode,
+    currentPackageCode: input.packageCode,
+    addOns,
+    status: "QUEUED",
+    currentStage: "DOMAIN_CHECK",
+    createdAt,
+    updatedAt: createdAt,
+    metadata: input.metadata ?? {},
+    deploymentEvents: [
+      {
+        type: "DEPLOYMENT_CREATED",
+        stage: "DOMAIN_CHECK",
+        domain: normalizedDomain,
+        repo: repoName,
+        at: createdAt,
+        details: {
+          packageCode: input.packageCode,
+          addOns,
+        },
+      } satisfies DeploymentEvent,
+    ],
   });
 
-  // 1. DOMAIN_CHECK
-  {
-    const result = await runStage(state, 'DOMAIN_CHECK', async () => {
-      const domainCheck = await checkDomainAvailability(normalizedDomain);
+  await putJob({
+    id: jobId,
+    jobId,
+    customerId: input.customerId,
+    deploymentId,
+    jobType: "DEPLOYMENT",
+    status: "QUEUED",
+    currentStage: "DOMAIN_CHECK",
+    createdAt,
+    updatedAt: createdAt,
+    initiatedBy: input.initiatedBy ?? "system",
+    payload: {
+      projectName: repoName,
+      domain: normalizedDomain,
+      packageCode: input.packageCode,
+      addOns,
+    },
+  });
 
-      if (!domainCheck.canProceed) {
-        const error = new Error(
-          `Domain is not available for provisioning (${domainCheck.status})`
-        );
-        (error as Error & { details?: unknown }).details = domainCheck;
-        throw error;
-      }
+  try {
+    // 1. DOMAIN_CHECK
+    await markStageRunning(ctx, "DOMAIN_CHECK");
 
-      return domainCheck;
-    });
+    const availability = await checkDomainAvailability(normalizedDomain);
 
-    if (!result.ok) {
-      const failure = {
-        ...result.failure,
-        details: {
-          domain: normalizedDomain,
-          originalError: result.failure.details
-        }
-      };
-
-      await persistFailureState(state, 'DOMAIN_CHECK', failure);
-      return failure;
-    }
-  }
-
-  // 2. GITHUB_PROVISION
-  {
-    const result = await runStage(state, 'GITHUB_PROVISION', async () => {
-      const repoProvision = await provisionRepository(params.repo, normalizedDomain);
-
-      if (!repoProvision.success) {
-        throw new Error(
-          `${repoProvision.stage}: ${repoProvision.error ?? 'Failed to provision GitHub repository'}`
-        );
-      }
-
-      state.repo = repoProvision.repo;
-
-      return {
-        repo: repoProvision.repo,
-        created: repoProvision.created,
-        filesCreated: repoProvision.filesCreated,
-        workflowExists: repoProvision.workflowExists,
-        url: repoProvision.url,
-        defaultBranch: repoProvision.defaultBranch
-      };
-    });
-
-    if (!result.ok) {
-      const failure = {
-        ...result.failure,
-        details: {
-          repo: state.repo,
-          domain: normalizedDomain,
-          originalError: result.failure.details
-        }
-      };
-
-      await persistFailureState(state, 'GITHUB_PROVISION', failure);
-      return failure;
-    }
-  }
-
-  // 3. S3_BUCKET
-  {
-    const result = await runStage(state, 'S3_BUCKET', async () => {
-      const bucketResult = await createCustomerBucket(bucket);
-
-      return {
-        bucket: bucketResult.bucketName,
-        existed: bucketResult.existed,
-        region: bucketResult.region,
-        bucketRegionalDomainName: bucketResult.bucketRegionalDomainName
-      };
-    });
-
-    if (!result.ok) {
-      const failure = {
-        ...result.failure,
-        details: {
-          bucket,
-          originalError: result.failure.details
-        }
-      };
-
-      await persistFailureState(state, 'S3_BUCKET', failure);
-      return failure;
-    }
-  }
-
-  // 4. ACM_REQUEST
-  {
-    const result = await runStage(state, 'ACM_REQUEST', async () => {
-      const certificateConfig = buildCertificateDomains(normalizedDomain);
-
-      const certificateArn = await requestCertificate(
-        certificateConfig.rootDomain,
-        certificateConfig.subjectAlternativeNames
+    if (!availability?.canProceed) {
+      throw new Error(
+        `Domain is not available for initial deploy: ${normalizedDomain}`
       );
+    }
 
-      state.certificateArn = certificateArn;
-
-      return {
-        certificateArn,
-        rootDomain: certificateConfig.rootDomain,
-        subjectAlternativeNames: certificateConfig.subjectAlternativeNames
-      };
+    await markStageCompleted(ctx, "DOMAIN_CHECK", {
+      domainCheck: availability,
     });
 
-    if (!result.ok) {
-      const certificateConfig = buildCertificateDomains(normalizedDomain);
+    // 2. GITHUB_PROVISION
+    await markStageRunning(ctx, "GITHUB_PROVISION");
 
-      const failure = {
-        ...result.failure,
-        details: {
-          domain: certificateConfig.rootDomain,
-          sans: certificateConfig.subjectAlternativeNames,
-          originalError: result.failure.details
-        }
-      };
+    const provisionResult = await provisionRepository(repoName, normalizedDomain);
 
-      await persistFailureState(state, 'ACM_REQUEST', failure);
-      return failure;
-    }
-  }
-
-  // 5. ACM_VALIDATION_RECORDS
-  {
-    const result = await runStage(state, 'ACM_VALIDATION_RECORDS', async () => {
-      if (!state.certificateArn) {
-        throw new Error('Certificate ARN missing before validation record step');
-      }
-
-      const validationRecords = await getCertificateValidationRecords(state.certificateArn);
-
-      for (const record of validationRecords) {
-        await upsertDnsValidationRecord(record.name, record.type, record.value);
-      }
-
-      return {
-        certificateArn: state.certificateArn,
-        recordCount: validationRecords.length,
-        records: validationRecords
-      };
-    });
-
-    if (!result.ok) {
-      const failure = {
-        ...result.failure,
-        details: {
-          certificateArn: state.certificateArn,
-          originalError: result.failure.details
-        }
-      };
-
-      await persistFailureState(state, 'ACM_VALIDATION_RECORDS', failure);
-      return failure;
-    }
-  }
-
-  // 6. ACM_WAIT
-  {
-    const result = await runStage(state, 'ACM_WAIT', async () => {
-      if (!state.certificateArn) {
-        throw new Error('Certificate ARN missing before wait step');
-      }
-
-      await waitForCertificateIssued(state.certificateArn);
-
-      return {
-        certificateArn: state.certificateArn,
-        status: 'ISSUED'
-      };
-    });
-
-    if (!result.ok) {
-      const failure = {
-        ...result.failure,
-        details: {
-          certificateArn: state.certificateArn,
-          originalError: result.failure.details
-        }
-      };
-
-      await persistFailureState(state, 'ACM_WAIT', failure);
-      return failure;
-    }
-  }
-
-  // 7. CLOUDFRONT
-  {
-    const result = await runStage(state, 'CLOUDFRONT', async () => {
-      if (!state.certificateArn) {
-        throw new Error('Certificate ARN missing before CloudFront step');
-      }
-
-      const distribution = await createDistribution({
-        bucketRegionalDomainName: buildBucketRegionalDomainName(bucket),
-        domainNames: distributionDomains,
-        certificateArn: state.certificateArn
-      });
-
-      await ensureCloudFrontReadAccess({
-        bucketName: bucket,
-        distributionArn: distribution.arn
-      });
-
-      state.distribution = {
-        distributionId: distribution.distributionId,
-        domainName: distribution.domainName,
-        arn: distribution.arn
-      };
-
-      return {
-        distributionId: distribution.distributionId,
-        cloudFrontDomainName: distribution.domainName,
-        distributionArn: distribution.arn,
-        domains: distributionDomains
-      };
-    });
-
-    if (!result.ok) {
-      const failure = {
-        ...result.failure,
-        details: {
-          bucket,
-          certificateArn: state.certificateArn,
-          domains: distributionDomains,
-          originalError: result.failure.details
-        }
-      };
-
-      await persistFailureState(state, 'CLOUDFRONT', failure);
-      return failure;
-    }
-  }
-
-  // 8. ROUTE53_ALIAS
-  {
-    const result = await runStage(state, 'ROUTE53_ALIAS', async () => {
-      if (!state.distribution?.domainName) {
-        throw new Error('CloudFront domain missing before Route53 alias step');
-      }
-
-      await upsertCloudFrontAliasRecords(
-        distributionDomains,
-        state.distribution.domainName
+    if (!provisionResult.success) {
+      throw new Error(
+        `GitHub provisioning failed at stage ${provisionResult.stage}: ${provisionResult.error}`
       );
+    }
 
-      return {
-        domains: distributionDomains,
-        cloudFrontDomainName: state.distribution.domainName
-      };
+    await markStageCompleted(ctx, "GITHUB_PROVISION", {
+      repo: provisionResult.repo,
+      repoUrl: provisionResult.url,
+      githubProvisioning: {
+        created: provisionResult.created,
+        filesCreated: provisionResult.filesCreated,
+        workflowExists: provisionResult.workflowExists,
+        details: provisionResult.details,
+      },
     });
 
-    if (!result.ok) {
-      const failure = {
-        ...result.failure,
-        details: {
-          domains: distributionDomains,
-          cloudFrontDomainName: state.distribution?.domainName,
-          originalError: result.failure.details
-        }
-      };
+    // 3. S3_BUCKET
+    await markStageRunning(ctx, "S3_BUCKET");
 
-      await persistFailureState(state, 'ROUTE53_ALIAS', failure);
-      return failure;
-    }
-  }
-
-  // 9. GITHUB_DISPATCH
-  {
-    const result = await runStage(state, 'GITHUB_DISPATCH', async () => {
-      if (!state.distribution?.distributionId) {
-        throw new Error('CloudFront distributionId missing before workflow dispatch');
-      }
-
-      const dispatchResult = await dispatchDeploymentWorkflow({
-        repo: state.repo,
-        bucket,
-        distributionId: state.distribution.distributionId
-      });
-
-      if (!dispatchResult.success) {
-        throw new Error(
-          dispatchResult.error ?? 'Failed to dispatch deployment workflow'
-        );
-      }
-
-      return {
-        repo: state.repo,
-        bucket,
-        distributionId: state.distribution.distributionId
-      };
+    const bucketResult = await createCustomerBucket(bucketName, {
+      tags: {
+        "deployment-id": deploymentId,
+        "customer-id": input.customerId,
+      },
     });
 
-    if (!result.ok) {
-      const failure = {
-        ...result.failure,
-        details: {
-          repo: state.repo,
-          bucket,
-          distributionId: state.distribution?.distributionId,
-          originalError: result.failure.details
-        }
-      };
+    await markStageCompleted(ctx, "S3_BUCKET", {
+      bucketName: bucketResult.bucketName,
+      bucketRegion: bucketResult.region,
+      bucketExisted: bucketResult.existed,
+      bucketRegionalDomainName: bucketResult.bucketRegionalDomainName,
+    });
 
-      await persistFailureState(state, 'GITHUB_DISPATCH', failure);
-      return failure;
+    // 4. ACM_REQUEST
+    await markStageRunning(ctx, "ACM_REQUEST");
+
+    const certificateArn = await requestCertificate(
+      certDomains.rootDomain,
+      certDomains.subjectAlternativeNames
+    );
+
+    await markStageCompleted(ctx, "ACM_REQUEST", {
+      certificateArn,
+      certificateDomains: certDomains,
+    });
+
+    // 5. ACM_VALIDATION_RECORDS
+    await markStageRunning(ctx, "ACM_VALIDATION_RECORDS");
+
+    const validationRecords = await getCertificateValidationRecords(certificateArn);
+
+    const validationResults: Array<{
+      name: string;
+      type: string;
+      hostedZoneId: string;
+      upserted: true;
+    }> = [];
+
+    for (const record of validationRecords) {
+      const result = await upsertDnsValidationRecord(
+        record.name,
+        record.type,
+        record.value
+      );
+      validationResults.push(result);
     }
-  }
 
-  // 10. DYNAMODB
-  {
-    const result = await runStage(state, 'DYNAMODB', async () => {
-      if (!state.certificateArn) {
-        throw new Error('Certificate ARN missing before persistence');
-      }
+    await markStageCompleted(ctx, "ACM_VALIDATION_RECORDS", {
+      certificateValidationRecords: validationRecords,
+      certificateValidationResults: validationResults,
+    });
 
-      if (!state.distribution?.distributionId || !state.distribution?.domainName) {
-        throw new Error('Distribution data missing before persistence');
-      }
+    // 6. ACM_WAIT
+    await markStageRunning(ctx, "ACM_WAIT");
 
-      const timestamp = nowIso();
+    await waitForCertificateIssued(certificateArn);
 
-      await putDeployment({
-        id: state.deploymentId,
-        customerId: params.customerId,
-        deploymentType: 'INITIAL_DEPLOY',
-        status: 'QUEUED',
-        currentStage: 'DYNAMODB',
-        currentPackageCode: params.packageCode,
-        addOns: params.addOns,
-        repo: state.repo,
-        bucketName: bucket,
-        cloudfrontDistributionId: state.distribution.distributionId,
-        cloudfrontDomainName: state.distribution.domainName,
-        certificateArn: state.certificateArn,
-        planSnapshot: plan,
-        domains: distributionDomains,
-        stages: state.stages,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        deploymentEvents: [
-          {
-            type: 'INITIAL_DEPLOY_REQUESTED',
-            repo: state.repo,
-            domain: normalizedDomain,
-            at: timestamp
-          }
-        ]
-      });
+    await markStageCompleted(ctx, "ACM_WAIT", {
+      certificateStatus: "ISSUED",
+    });
 
-      await putJob({
-        id: state.jobId,
-        customerId: params.customerId,
-        deploymentId: state.deploymentId,
-        jobType: 'INITIAL_DEPLOY',
-        status: 'QUEUED',
-        payload: {
-          repo: state.repo,
-          domain: normalizedDomain,
-          bucket,
-          distributionId: state.distribution.distributionId
+    // 7. CLOUDFRONT
+    await markStageRunning(ctx, "CLOUDFRONT");
+
+    const distribution = await createDistribution({
+      bucketRegionalDomainName: bucketResult.bucketRegionalDomainName,
+      domainNames: allDomains,
+      certificateArn,
+    });
+
+    await ensureCloudFrontReadAccess({
+      bucketName,
+      distributionArn: distribution.arn,
+    });
+
+    await markStageCompleted(ctx, "CLOUDFRONT", {
+      cloudfrontDistributionId: distribution.distributionId,
+      cloudfrontDistributionArn: distribution.arn,
+      cloudfrontDomainName: distribution.domainName,
+      cloudfrontAliases: distribution.aliases,
+      cloudfrontCreated: distribution.created,
+      cloudfrontUpdated: distribution.updated,
+      oacId: distribution.oacId,
+    });
+
+    // 8. ROUTE53_ALIAS
+    await markStageRunning(ctx, "ROUTE53_ALIAS");
+
+    const aliasResult = await upsertCloudFrontAliasRecords(
+      allDomains,
+      distribution.domainName
+    );
+
+    await markStageCompleted(ctx, "ROUTE53_ALIAS", {
+      route53Aliases: aliasResult.upsertedDomains,
+      route53CloudFrontDomainName: aliasResult.cloudFrontDomainName,
+    });
+
+    // 9. GITHUB_DISPATCH
+    await markStageRunning(ctx, "GITHUB_DISPATCH");
+
+    const dispatchResult = await dispatchDeploymentWorkflow({
+      repo: provisionResult.repo,
+      bucket: bucketName,
+      distributionId: distribution.distributionId,
+      ref: provisionResult.defaultBranch,
+    });
+
+    if (!dispatchResult.success) {
+      throw new Error(`GitHub deployment dispatch failed: ${dispatchResult.error}`);
+    }
+
+    await markStageCompleted(ctx, "GITHUB_DISPATCH", {
+      githubDispatch: dispatchResult.details,
+    });
+
+    // 10. DYNAMODB
+    await markStageRunning(ctx, "DYNAMODB");
+
+    await Promise.all([
+      updateDeployment({
+        deploymentId,
+        set: {
+          repo: provisionResult.repo,
+          repoUrl: provisionResult.url,
+          defaultBranch: provisionResult.defaultBranch,
+          bucketName: bucketResult.bucketName,
+          bucketRegion: bucketResult.region,
+          bucketRegionalDomainName: bucketResult.bucketRegionalDomainName,
+          certificateArn,
+          certificateDomains: certDomains,
+          cloudfrontDistributionId: distribution.distributionId,
+          cloudfrontDomainName: distribution.domainName,
+          domains: allDomains,
+          planSnapshot: plan,
         },
-        stages: state.stages,
-        createdAt: timestamp,
-        updatedAt: timestamp
-      });
+      }),
+      updateJob({
+        jobId,
+        set: {
+          payload: {
+            customerId: input.customerId,
+            projectName: repoName,
+            domain: normalizedDomain,
+            packageCode: input.packageCode,
+            addOns,
+            repo: provisionResult.repo,
+            bucketName: bucketResult.bucketName,
+            certificateArn,
+            distributionId: distribution.distributionId,
+          },
+        },
+      }),
+    ]);
 
-      return {
-        deploymentId: state.deploymentId,
-        jobId: state.jobId,
-        repo: state.repo
-      };
+    await markStageCompleted(ctx, "DYNAMODB");
+
+    // 11. SQS
+    await markStageRunning(ctx, "SQS");
+
+    const messageId = await queueJob({
+      type: "POST_DEPLOYMENT_SYNC",
+      deploymentId,
+      jobId,
+      payload: {
+        customerId: input.customerId,
+        domain: normalizedDomain,
+        repo: provisionResult.repo,
+      },
     });
 
-    if (!result.ok) {
-      const failure = {
-        ...result.failure,
-        details: {
-          deploymentId: state.deploymentId,
-          jobId: state.jobId,
-          originalError: result.failure.details
-        }
-      };
-
-      await persistFailureState(state, 'DYNAMODB', failure);
-      return failure;
-    }
-  }
-
-  // 11. SQS
-  {
-    const result = await runStage(state, 'SQS', async () => {
-      await queueJob({
-        jobId: state.jobId,
-        deploymentId: state.deploymentId,
-        customerId: params.customerId,
-        type: 'INITIAL_DEPLOY'
-      });
-
-      return {
-        jobId: state.jobId,
-        deploymentId: state.deploymentId,
-        queued: true
-      };
+    await markStageCompleted(ctx, "SQS", {
+      queuedMessageId: messageId,
     });
 
-    if (!result.ok) {
-      const failure = {
-        ...result.failure,
-        details: {
-          jobId: state.jobId,
-          deploymentId: state.deploymentId,
-          originalError: result.failure.details
-        }
-      };
+    await markDeploymentSucceeded(ctx, {
+      queuedMessageId: messageId,
+    });
 
-      await persistFailureState(state, 'SQS', failure);
-      return failure;
-    }
+    return {
+      success: true,
+      deploymentId,
+      jobId,
+      status: "SUCCEEDED" as const,
+      domain: normalizedDomain,
+      repo: provisionResult.repo,
+      bucketName: bucketResult.bucketName,
+      certificateArn,
+      distributionId: distribution.distributionId,
+      cloudfrontDomainName: distribution.domainName,
+      queuedMessageId: messageId,
+    };
+  } catch (error) {
+    const failedStage = await inferCurrentStageSafe(jobId);
+    await markDeploymentFailed(ctx, failedStage, error);
+    throw error;
   }
-
-  return {
-    success: true,
-    deploymentId: state.deploymentId,
-    jobId: state.jobId,
-    bucket,
-    distributionId: state.distribution!.distributionId,
-    cloudFrontDomainName: state.distribution!.domainName,
-    certificateArn: state.certificateArn!,
-    domains: distributionDomains,
-    plan,
-    repo: state.repo,
-    stages: state.stages
-  };
 }
