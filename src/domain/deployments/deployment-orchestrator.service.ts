@@ -249,21 +249,28 @@ export class DeploymentOrchestratorService {
   private async handleS3Bucket(
     deployment: DeploymentRecord,
   ): Promise<Record<string, unknown>> {
-    if (deployment.managedResources.bucketName) {
+    if (
+      deployment.managedResources.bucketName &&
+      deployment.managedResources.bucketRegionalDomainName
+    ) {
       return {
         bucketName: deployment.managedResources.bucketName,
+        bucketRegionalDomainName:
+          deployment.managedResources.bucketRegionalDomainName,
         skipped: true,
       };
     }
-
+  
     const result = await this.deps.s3Bucket({
       domain: deployment.domain,
     });
-
+  
     return {
       bucketName: result.bucketName,
+      bucketRegionalDomainName: result.bucketRegionalDomainName,
       managedResources: {
         bucketName: result.bucketName,
+        bucketRegionalDomainName: result.bucketRegionalDomainName,
       } satisfies Partial<ManagedResources>,
     };
   }
@@ -296,7 +303,11 @@ export class DeploymentOrchestratorService {
     if (!deployment.managedResources.certificateArn) {
       throw new Error('Missing certificateArn before ACM_VALIDATION_RECORDS');
     }
-
+  
+    if (!deployment.managedResources.hostedZoneId) {
+      throw new Error('Missing hostedZoneId before ACM_VALIDATION_RECORDS');
+    }
+  
     if (
       deployment.managedResources.validationRecordFqdns &&
       deployment.managedResources.validationRecordFqdns.length > 0
@@ -306,11 +317,12 @@ export class DeploymentOrchestratorService {
         skipped: true,
       };
     }
-
+  
     const result = await this.deps.acmValidationRecords({
       certificateArn: deployment.managedResources.certificateArn,
+      hostedZoneId: deployment.managedResources.hostedZoneId,
     });
-
+  
     return {
       validationRecords: result.validationRecords,
       validationRecordFqdns: result.validationRecordFqdns,
@@ -372,27 +384,35 @@ export class DeploymentOrchestratorService {
         skipped: true,
       };
     }
-
+  
     if (!deployment.managedResources.bucketName) {
       throw new Error('Missing bucketName before CLOUDFRONT');
     }
-
+  
+    if (!deployment.managedResources.bucketRegionalDomainName) {
+      throw new Error('Missing bucketRegionalDomainName before CLOUDFRONT');
+    }
+  
     if (!deployment.managedResources.certificateArn) {
       throw new Error('Missing certificateArn before CLOUDFRONT');
     }
-
+  
     const result = await this.deps.cloudFront({
       domain: deployment.domain,
       bucketName: deployment.managedResources.bucketName,
+      bucketRegionalDomainName:
+        deployment.managedResources.bucketRegionalDomainName,
       certificateArn: deployment.managedResources.certificateArn,
     });
-
+  
     return {
       cloudFrontDistributionId: result.distributionId,
       cloudFrontDomainName: result.domainName,
       managedResources: {
         cloudFrontDistributionId: result.distributionId,
         cloudFrontDomainName: result.domainName,
+        cloudFrontDistributionArn: result.arn,
+        oacId: result.oacId,
       } satisfies Partial<ManagedResources>,
     };
   }

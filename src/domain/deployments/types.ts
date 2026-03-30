@@ -73,9 +73,12 @@ export type StageExecutionState = {
 
 export type ManagedResources = {
   bucketName?: string;
+  bucketRegionalDomainName?: string;
   certificateArn?: string;
   cloudFrontDistributionId?: string;
   cloudFrontDomainName?: string;
+  cloudFrontDistributionArn?: string;
+  oacId?: string;
   repoName?: string;
   hostedZoneId?: string;
   route53AliasRecords?: string[];

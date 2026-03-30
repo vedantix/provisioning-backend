@@ -6,6 +6,7 @@ import {
   GetCommand,
   PutCommand,
   QueryCommand,
+  ScanCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import type {
@@ -57,6 +58,32 @@ export class DeploymentsRepository {
     );
 
     return (result.Items?.[0] as DeploymentRecord | undefined) ?? null;
+  }
+
+  async listCleanupCandidates(params?: {
+    tenantId?: string;
+    limit?: number;
+  }): Promise<DeploymentRecord[]> {
+    const limit = params?.limit ?? 50;
+
+    const result = await ddb.send(
+      new ScanCommand({
+        TableName: TABLE_NAME,
+        Limit: limit,
+      }),
+    );
+
+    const items = (result.Items as DeploymentRecord[] | undefined) ?? [];
+
+    return items
+      .filter((item) => {
+        if (params?.tenantId && item.tenantId !== params.tenantId) {
+          return false;
+        }
+
+        return item.status === 'FAILED' || item.status === 'DELETING';
+      })
+      .slice(0, limit);
   }
 
   async create(deployment: DeploymentRecord): Promise<void> {

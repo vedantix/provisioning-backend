@@ -1,5 +1,22 @@
 import type { DeleteStageDependencies } from './delete-stage-dependencies';
 
+import {
+  disableAndDeleteDistribution,
+} from '../../services/aws/cloudfront.service';
+
+import {
+  deleteCertificateIfExists,
+} from '../../services/aws/acm.service';
+
+import {
+  deleteDnsValidationRecords,
+  removeCloudFrontAliasRecords,
+} from '../../services/aws/route53.service';
+
+import {
+  emptyAndDeleteBucket,
+} from '../../services/aws/s3.service';
+
 class DeleteStageDependenciesFactoryImpl implements DeleteStageDependencies {
   async deleteDomainAlias(input: {
     domain: string;
@@ -7,10 +24,17 @@ class DeleteStageDependenciesFactoryImpl implements DeleteStageDependencies {
     hostedZoneId: string;
     aliasRecords?: string[];
   }) {
-    void input;
+    void input.hostedZoneId;
+
+    const domains =
+      input.aliasRecords && input.aliasRecords.length > 0
+        ? input.aliasRecords
+        : [input.domain, `www.${input.rootDomain}`];
+
+    const result = await removeCloudFrontAliasRecords(domains);
 
     return {
-      removedRecords: input.aliasRecords ?? [input.domain, `www.${input.rootDomain}`],
+      removedRecords: result.removedDomains,
     };
   }
 
@@ -29,9 +53,11 @@ class DeleteStageDependenciesFactoryImpl implements DeleteStageDependencies {
   }
 
   async deleteCloudFront(input: { distributionId: string }) {
+    const result = await disableAndDeleteDistribution(input.distributionId);
+
     return {
-      distributionId: input.distributionId,
-      deleted: true,
+      distributionId: result.distributionId,
+      deleted: result.deleted,
     };
   }
 
@@ -43,9 +69,13 @@ class DeleteStageDependenciesFactoryImpl implements DeleteStageDependencies {
   }
 
   async deleteS3Bucket(input: { bucketName: string }) {
-    return {
+    const result = await emptyAndDeleteBucket({
       bucketName: input.bucketName,
-      deleted: true,
+    });
+
+    return {
+      bucketName: result.bucketName,
+      deleted: result.deleted,
     };
   }
 
@@ -53,17 +83,24 @@ class DeleteStageDependenciesFactoryImpl implements DeleteStageDependencies {
     hostedZoneId: string;
     validationRecordFqdns?: string[];
   }) {
-    void input;
+    const result = await deleteDnsValidationRecords({
+      hostedZoneId: input.hostedZoneId,
+      recordNames: input.validationRecordFqdns,
+    });
 
     return {
-      removedValidationRecordFqdns: input.validationRecordFqdns ?? [],
+      removedValidationRecordFqdns: result.removedRecordNames,
     };
   }
 
   async deleteAcmCertificate(input: { certificateArn: string }) {
-    return {
+    const result = await deleteCertificateIfExists({
       certificateArn: input.certificateArn,
-      deleted: true,
+    });
+
+    return {
+      certificateArn: result.certificateArn,
+      deleted: result.deleted,
     };
   }
 }

@@ -62,9 +62,7 @@ async function listAllHostedZones(): Promise<Array<{ id: string; name: string }>
     );
 
     for (const zone of result.HostedZones ?? []) {
-      if (!zone.Id || !zone.Name) {
-        continue;
-      }
+      if (!zone.Id || !zone.Name) continue;
 
       zones.push({
         id: zone.Id.replace("/hostedzone/", ""),
@@ -86,9 +84,7 @@ async function findBestHostedZoneId(domain: string): Promise<string | null> {
 
   for (const candidate of candidates) {
     const zone = hostedZones.find((z) => z.name === candidate);
-    if (zone) {
-      return zone.id;
-    }
+    if (zone) return zone.id;
   }
 
   return null;
@@ -238,6 +234,47 @@ export async function upsertDnsValidationRecord(
   };
 }
 
+export async function deleteDnsValidationRecords(params: {
+  hostedZoneId: string;
+  recordNames?: string[];
+}): Promise<{
+  hostedZoneId: string;
+  removedRecordNames: string[];
+}> {
+  const hostedZoneId = params.hostedZoneId;
+  const recordNames = [...new Set((params.recordNames ?? []).map(normalizeDnsName))];
+
+  if (!hostedZoneId) {
+    throw new Error("hostedZoneId is required for DNS validation delete");
+  }
+
+  const removedRecordNames: string[] = [];
+
+  for (const recordName of recordNames) {
+    const existing = await findExactRecord(hostedZoneId, recordName, "CNAME");
+
+    if (!existing) {
+      continue;
+    }
+
+    await deleteRecord({
+      hostedZoneId,
+      record: existing,
+    });
+
+    removedRecordNames.push(recordName);
+
+    console.log(
+      `[ROUTE53] Deleted DNS validation record CNAME ${recordName} in hosted zone ${hostedZoneId}`
+    );
+  }
+
+  return {
+    hostedZoneId,
+    removedRecordNames,
+  };
+}
+
 export async function upsertCloudFrontAliasRecords(
   hostedZoneId: string,
   domains: string[],
@@ -353,16 +390,8 @@ export async function removeCloudFrontAliasRecords(domains: string[]) {
   }> = [];
 
   for (const domain of normalizedDomains) {
-    try {
-      const result = await removeSingleAliasRecord(domain);
-      removed.push(result);
-    } catch (error) {
-      console.warn(
-        `[ROUTE53] Failed to remove alias record for ${domain}`,
-        error
-      );
-      throw error;
-    }
+    const result = await removeSingleAliasRecord(domain);
+    removed.push(result);
   }
 
   return {

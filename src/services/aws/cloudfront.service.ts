@@ -541,3 +541,81 @@ export async function disableAndDeleteDistribution(
     deleted: true
   };
 }
+
+export async function disableDistribution(
+  distributionId: string
+): Promise<{
+  distributionId: string;
+  disabled: true;
+  eTag?: string;
+}> {
+  const currentConfigResult = await cloudfront.send(
+    new GetDistributionConfigCommand({
+      Id: distributionId
+    })
+  );
+
+  const currentConfig = currentConfigResult.DistributionConfig;
+  const eTag = currentConfigResult.ETag;
+
+  if (!currentConfig || !eTag) {
+    throw new Error(`Failed to load current CloudFront config for distribution ${distributionId}`);
+  }
+
+  if (!currentConfig.Enabled) {
+    return {
+      distributionId,
+      disabled: true,
+      eTag,
+    };
+  }
+
+  const disableResult = await cloudfront.send(
+    new UpdateDistributionCommand({
+      Id: distributionId,
+      IfMatch: eTag,
+      DistributionConfig: {
+        ...currentConfig,
+        Enabled: false
+      }
+    })
+  );
+
+  return {
+    distributionId,
+    disabled: true,
+    eTag: disableResult.ETag,
+  };
+}
+
+export async function waitForDistributionDisabled(
+  distributionId: string,
+  maxAttempts = 40,
+  delayMs = 15000
+): Promise<{
+  distributionId: string;
+  status: 'DISABLED';
+  eTag?: string;
+}> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const result = await cloudfront.send(
+      new GetDistributionConfigCommand({
+        Id: distributionId
+      })
+    );
+
+    if (result.DistributionConfig && result.DistributionConfig.Enabled === false) {
+      return {
+        distributionId,
+        status: 'DISABLED',
+        eTag: result.ETag,
+      };
+    }
+
+    if (attempt < maxAttempts) {
+      await wait(delayMs);
+    }
+  }
+
+  throw new Error(`Timed out while waiting for CloudFront distribution ${distributionId} to disable`);
+}

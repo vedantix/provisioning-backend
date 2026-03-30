@@ -5,6 +5,7 @@ import { createDeleteStageDependencies } from './delete-stage-dependencies.facto
 import { DeploymentsRepository } from '../../repositories/deployments.repository';
 import { OperationsRepository } from '../../repositories/operations.repository';
 import { DeploymentStateService } from './deployment-state.service';
+import { AuditService } from '../audit/audit.service';
 
 export class DeleteDeploymentService {
   constructor(
@@ -12,6 +13,7 @@ export class DeleteDeploymentService {
     private readonly operationsRepository = new OperationsRepository(),
     private readonly stateService = new DeploymentStateService(),
     private readonly deps: DeleteStageDependencies = createDeleteStageDependencies(),
+    private readonly auditService = new AuditService(),
   ) {}
 
   async runDelete(deploymentId: string, operationId: string): Promise<void> {
@@ -30,6 +32,16 @@ export class DeleteDeploymentService {
 
         await this.stateService.startDeleteStage(deploymentId, stage);
 
+        await this.auditService.write({
+          deploymentId: currentDeployment.deploymentId,
+          operationId,
+          tenantId: currentDeployment.tenantId,
+          customerId: currentDeployment.customerId,
+          actorId: currentDeployment.triggeredBy ?? currentDeployment.createdBy,
+          eventType: 'STAGE_STARTED',
+          metadata: { stage, mode: 'delete' },
+        });
+
         const output = await this.executeStage(currentDeployment, stage);
 
         if (output?.managedResources) {
@@ -46,6 +58,16 @@ export class DeleteDeploymentService {
 
         await this.stateService.succeedStage(deploymentId, stage, output);
 
+        await this.auditService.write({
+          deploymentId: currentDeployment.deploymentId,
+          operationId,
+          tenantId: currentDeployment.tenantId,
+          customerId: currentDeployment.customerId,
+          actorId: currentDeployment.triggeredBy ?? currentDeployment.createdBy,
+          eventType: 'STAGE_SUCCEEDED',
+          metadata: { stage, mode: 'delete' },
+        });
+
         currentStage = getNextDeleteStage(stage);
       } catch (error) {
         await this.stateService.failStage(deploymentId, stage, {
@@ -53,6 +75,20 @@ export class DeleteDeploymentService {
           errorMessage:
             error instanceof Error ? error.message : 'Unknown error',
           retryable: true,
+        });
+
+        await this.auditService.write({
+          deploymentId: deployment.deploymentId,
+          operationId,
+          tenantId: deployment.tenantId,
+          customerId: deployment.customerId,
+          actorId: deployment.triggeredBy ?? deployment.createdBy,
+          eventType: 'STAGE_FAILED',
+          metadata: {
+            stage,
+            mode: 'delete',
+            error: error instanceof Error ? error.message : 'Unknown error',
+          },
         });
 
         await this.operationsRepository.markFailed(
@@ -213,6 +249,8 @@ export class DeleteDeploymentService {
       managedResources: {
         cloudFrontDistributionId: undefined,
         cloudFrontDomainName: undefined,
+        cloudFrontDistributionArn: undefined,
+        oacId: undefined,
       } satisfies Partial<ManagedResources>,
     };
   }
@@ -250,6 +288,7 @@ export class DeleteDeploymentService {
       deleted: result.deleted,
       managedResources: {
         bucketName: undefined,
+        bucketRegionalDomainName: undefined,
       } satisfies Partial<ManagedResources>,
     };
   }
