@@ -1,56 +1,129 @@
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
   PutCommand,
   GetCommand,
-  UpdateCommand
-} from '@aws-sdk/lib-dynamodb';
-import { env } from '../../config/env';
+  UpdateCommand,
+} from "@aws-sdk/lib-dynamodb";
+import { env } from "../../config/env";
+import type {
+  AddOnInput,
+  PackageCode,
+  ResolvedPlan,
+} from "../../types/package.types";
 
 const client = new DynamoDBClient({ region: env.awsRegion });
 const docClient = DynamoDBDocumentClient.from(client);
 
+export type LifecycleStatus =
+  | "QUEUED"
+  | "RUNNING"
+  | "FAILED"
+  | "SUCCEEDED"
+  | "DELETED";
+
+export type DeploymentType =
+  | "INITIAL_DEPLOY"
+  | "ADD_DOMAIN"
+  | "PACKAGE_UPGRADE"
+  | "REDEPLOY"
+  | "ROLLBACK"
+  | "DELETE_EVERYTHING"
+  | "ADD_MAILBOX";
+
+export type JobType =
+  | "DEPLOYMENT"
+  | "ADD_DOMAIN"
+  | "PACKAGE_UPGRADE"
+  | "REDEPLOY"
+  | "ROLLBACK"
+  | "DELETE_EVERYTHING"
+  | "ADD_MAILBOX";
+
 export type DeploymentRecord = {
   id: string;
   customerId: string;
-  deploymentType?: string;
-  status?: string;
+
+  deploymentType?: DeploymentType;
+  status?: LifecycleStatus;
   currentStage?: string;
-  currentPackageCode?: string;
-  addOns?: unknown[];
-  repo?: string;
-  bucketName?: string;
-  cloudfrontDistributionId?: string;
-  cloudfrontDomainName?: string;
-  certificateArn?: string;
+  failedStage?: string;
+
+  projectName?: string;
+  primaryDomain?: string;
   domains?: string[];
-  planSnapshot?: unknown;
-  stages?: unknown[];
+
+  packageCode?: PackageCode;
+  currentPackageCode?: PackageCode;
+  addOns?: AddOnInput[];
+  planSnapshot?: ResolvedPlan | Record<string, unknown>;
+  pendingPlanSnapshot?: ResolvedPlan | Record<string, unknown>;
+
+  repo?: string;
+  repoUrl?: string;
+  defaultBranch?: string;
+
+  bucketName?: string;
+  bucketRegion?: string;
+  bucketRegionalDomainName?: string;
+
+  cloudfrontDistributionId?: string;
+  cloudfrontDistributionArn?: string;
+  cloudfrontDomainName?: string;
+  cloudfrontAliases?: string[];
+  oacId?: string;
+
+  certificateArn?: string;
+  pendingCertificateArn?: string;
+  certificateDomains?: string[];
+  certificateStatus?: string;
+
+  rollbackTargetRef?: string;
+  queuedMessageId?: string;
+
+  deployedAt?: string;
+  deletedAt?: string;
+
   lastError?: string;
   lastErrorDetails?: unknown;
+
+  metadata?: Record<string, unknown>;
+
   domainEvents?: unknown[];
   packageEvents?: unknown[];
   mailboxRequests?: unknown[];
   deletionEvents?: unknown[];
   deploymentEvents?: unknown[];
+
   createdAt?: string;
   updatedAt?: string;
-  deletedAt?: string;
+
   [key: string]: unknown;
 };
 
 export type JobRecord = {
   id: string;
   customerId: string;
+
   deploymentId?: string;
-  jobType?: string;
-  status?: string;
+  jobType?: JobType;
+  status?: LifecycleStatus;
+  currentStage?: string;
+  failedStage?: string;
+
   payload?: unknown;
+  queuedMessageId?: string;
+  initiatedBy?: string;
+
   stages?: unknown[];
+
+  completedAt?: string;
   lastError?: string;
   lastErrorDetails?: unknown;
+
   createdAt?: string;
   updatedAt?: string;
+
   [key: string]: unknown;
 };
 
@@ -78,7 +151,7 @@ export async function putDeployment(item: Record<string, unknown>): Promise<void
   await docClient.send(
     new PutCommand({
       TableName: env.deploymentsTable,
-      Item: item
+      Item: item,
     })
   );
 }
@@ -90,8 +163,8 @@ export async function getDeploymentById(
     new GetCommand({
       TableName: env.deploymentsTable,
       Key: {
-        id: deploymentId
-      }
+        id: deploymentId,
+      },
     })
   );
 
@@ -102,7 +175,7 @@ export async function putJob(item: Record<string, unknown>): Promise<void> {
   await docClient.send(
     new PutCommand({
       TableName: env.jobsTable,
-      Item: item
+      Item: item,
     })
   );
 }
@@ -112,8 +185,8 @@ export async function getJobById(jobId: string): Promise<JobRecord | null> {
     new GetCommand({
       TableName: env.jobsTable,
       Key: {
-        id: jobId
-      }
+        id: jobId,
+      },
     })
   );
 
@@ -170,11 +243,11 @@ async function updateItem(params: UpdateItemParams): Promise<void> {
   const updateExpressions: string[] = [];
 
   if (setParts.length || appendParts.length) {
-    updateExpressions.push(`SET ${[...setParts, ...appendParts].join(', ')}`);
+    updateExpressions.push(`SET ${[...setParts, ...appendParts].join(", ")}`);
   }
 
   if (removeParts.length) {
-    updateExpressions.push(`REMOVE ${removeParts.join(', ')}`);
+    updateExpressions.push(`REMOVE ${removeParts.join(", ")}`);
   }
 
   if (!updateExpressions.length) {
@@ -185,13 +258,13 @@ async function updateItem(params: UpdateItemParams): Promise<void> {
     new UpdateCommand({
       TableName: params.tableName,
       Key: params.key,
-      UpdateExpression: updateExpressions.join(' '),
+      UpdateExpression: updateExpressions.join(" "),
       ...(Object.keys(names).length > 0
         ? { ExpressionAttributeNames: names }
         : {}),
       ...(Object.keys(values).length > 0
         ? { ExpressionAttributeValues: values }
-        : {})
+        : {}),
     })
   );
 }
@@ -207,10 +280,10 @@ export async function updateDeployment(params: {
     key: { id: params.deploymentId },
     set: compactUndefined({
       ...(params.set ?? {}),
-      updatedAt: params.set?.updatedAt ?? nowIso()
+      updatedAt: params.set?.updatedAt ?? nowIso(),
     }),
     remove: params.remove,
-    appendToLists: params.appendToLists
+    appendToLists: params.appendToLists,
   });
 }
 
@@ -225,9 +298,9 @@ export async function updateJob(params: {
     key: { id: params.jobId },
     set: compactUndefined({
       ...(params.set ?? {}),
-      updatedAt: params.set?.updatedAt ?? nowIso()
+      updatedAt: params.set?.updatedAt ?? nowIso(),
     }),
     remove: params.remove,
-    appendToLists: params.appendToLists
+    appendToLists: params.appendToLists,
   });
 }
