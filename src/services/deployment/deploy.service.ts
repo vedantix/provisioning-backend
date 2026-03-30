@@ -447,14 +447,25 @@ export async function deployWebsite(input: DeployRequest) {
 
     const availability = await checkDomainAvailability(normalizedDomain);
 
-    if (!availability?.canProceed) {
+    if (!availability.canProceed) {
       throw new Error(
-        `Domain is not available for initial deploy: ${normalizedDomain}`
+        `Domain check failed for ${normalizedDomain}: ${availability.status}`
       );
     }
 
+    if (!availability.hostedZoneId) {
+      throw new Error(
+        `Domain check succeeded but hostedZoneId is missing for ${normalizedDomain}`
+      );
+    }
+
+    const hostedZoneId = availability.hostedZoneId;
+    const rootDomain = availability.rootDomain;
+
     await markStageCompleted(ctx, "DOMAIN_CHECK", {
       domainCheck: availability,
+      hostedZoneId,
+      rootDomain,
     });
 
     // 2. GITHUB_PROVISION
@@ -467,19 +478,19 @@ export async function deployWebsite(input: DeployRequest) {
         message: `Add deploy workflow for ${normalizedDomain}`,
       },
     ];
-    
+
     const provisionResult = await provisionRepository(
       repoName,
       normalizedDomain,
       provisionFiles
     );
-    
+
     if (!provisionResult.success) {
       throw new Error(
         `GitHub provisioning failed at stage ${provisionResult.stage}: ${provisionResult.error}`
       );
     }
-    
+
     if (!provisionResult.workflowExists) {
       throw new Error(
         `GitHub provisioning completed, but no deployment workflow exists in repo ${provisionResult.repo}`
@@ -541,14 +552,17 @@ export async function deployWebsite(input: DeployRequest) {
 
     for (const record of validationRecords) {
       const result = await upsertDnsValidationRecord(
+        hostedZoneId,
         record.name,
         record.type,
         record.value
       );
+
       validationResults.push(result);
     }
 
     await markStageCompleted(ctx, "ACM_VALIDATION_RECORDS", {
+      hostedZoneId,
       certificateValidationRecords: validationRecords,
       certificateValidationResults: validationResults,
     });
@@ -590,11 +604,13 @@ export async function deployWebsite(input: DeployRequest) {
     await markStageRunning(ctx, "ROUTE53_ALIAS");
 
     const aliasResult = await upsertCloudFrontAliasRecords(
+      hostedZoneId,
       allDomains,
       distribution.domainName
     );
 
     await markStageCompleted(ctx, "ROUTE53_ALIAS", {
+      hostedZoneId,
       route53Aliases: aliasResult.upsertedDomains,
       route53CloudFrontDomainName: aliasResult.cloudFrontDomainName,
     });
@@ -632,6 +648,8 @@ export async function deployWebsite(input: DeployRequest) {
           bucketRegionalDomainName: bucketResult.bucketRegionalDomainName,
           certificateArn,
           certificateDomains: certDomains,
+          hostedZoneId,
+          rootDomain,
           cloudfrontDistributionId: distribution.distributionId,
           cloudfrontDomainName: distribution.domainName,
           domains: allDomains,
@@ -645,6 +663,8 @@ export async function deployWebsite(input: DeployRequest) {
             customerId: input.customerId,
             projectName: repoName,
             domain: normalizedDomain,
+            rootDomain,
+            hostedZoneId,
             packageCode: input.packageCode,
             addOns,
             repo: provisionResult.repo,
@@ -668,6 +688,8 @@ export async function deployWebsite(input: DeployRequest) {
       payload: {
         customerId: input.customerId,
         domain: normalizedDomain,
+        rootDomain,
+        hostedZoneId,
         repo: provisionResult.repo,
       },
     });
@@ -686,6 +708,8 @@ export async function deployWebsite(input: DeployRequest) {
       jobId,
       status: "SUCCEEDED" as const,
       domain: normalizedDomain,
+      rootDomain,
+      hostedZoneId,
       repo: provisionResult.repo,
       bucketName: bucketResult.bucketName,
       certificateArn,

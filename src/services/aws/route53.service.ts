@@ -4,13 +4,13 @@ import {
   ListHostedZonesByNameCommand,
   ListResourceRecordSetsCommand,
   ResourceRecordSet,
-  RRType
-} from '@aws-sdk/client-route-53';
-import { env } from '../../config/env';
+  RRType,
+} from "@aws-sdk/client-route-53";
+import { env } from "../../config/env";
 
 const route53 = new Route53Client({ region: env.awsRegion });
 
-const CLOUDFRONT_HOSTED_ZONE_ID = 'Z2FDTNDATAQYW2';
+const CLOUDFRONT_HOSTED_ZONE_ID = "Z2FDTNDATAQYW2";
 
 type DnsValidationRecord = {
   name: string;
@@ -18,14 +18,14 @@ type DnsValidationRecord = {
   value: string;
 };
 
-type AliasRecordType = 'A' | 'AAAA';
+type AliasRecordType = "A" | "AAAA";
 
 function normalizeDnsName(value: string): string {
-  return value.trim().toLowerCase().replace(/\.$/, '');
+  return value.trim().toLowerCase().replace(/\.$/, "");
 }
 
 function ensureTrailingDot(value: string): string {
-  return value.endsWith('.') ? value : `${value}.`;
+  return value.endsWith(".") ? value : `${value}.`;
 }
 
 function toRoute53RecordName(value: string): string {
@@ -33,16 +33,16 @@ function toRoute53RecordName(value: string): string {
 }
 
 function toAliasRecordTypes(): AliasRecordType[] {
-  return ['A', 'AAAA'];
+  return ["A", "AAAA"];
 }
 
 function buildCandidateZoneNames(domain: string): string[] {
-  const normalized = normalizeDnsName(domain);
-  const labels = normalized.split('.');
+  const normalizedDomain = normalizeDnsName(domain);
+  const labels = normalizedDomain.split(".");
   const candidates: string[] = [];
 
   for (let i = 0; i < labels.length - 1; i += 1) {
-    candidates.push(labels.slice(i).join('.'));
+    candidates.push(labels.slice(i).join("."));
   }
 
   return candidates;
@@ -57,7 +57,7 @@ async function listAllHostedZones(): Promise<Array<{ id: string; name: string }>
     const result = await route53.send(
       new ListHostedZonesByNameCommand({
         DNSName: dnsName,
-        HostedZoneId: hostedZoneId
+        HostedZoneId: hostedZoneId,
       })
     );
 
@@ -67,13 +67,13 @@ async function listAllHostedZones(): Promise<Array<{ id: string; name: string }>
       }
 
       zones.push({
-        id: zone.Id.replace('/hostedzone/', ''),
-        name: normalizeDnsName(zone.Name)
+        id: zone.Id.replace("/hostedzone/", ""),
+        name: normalizeDnsName(zone.Name),
       });
     }
 
     dnsName = result.NextDNSName;
-    hostedZoneId = result.NextHostedZoneId?.replace('/hostedzone/', '');
+    hostedZoneId = result.NextHostedZoneId?.replace("/hostedzone/", "");
   } while (dnsName);
 
   return zones;
@@ -86,7 +86,6 @@ async function findBestHostedZoneId(domain: string): Promise<string | null> {
 
   for (const candidate of candidates) {
     const zone = hostedZones.find((z) => z.name === candidate);
-
     if (zone) {
       return zone.id;
     }
@@ -105,11 +104,11 @@ async function upsertRecord(params: {
       ChangeBatch: {
         Changes: [
           {
-            Action: 'UPSERT',
-            ResourceRecordSet: params.record
-          }
-        ]
-      }
+            Action: "UPSERT",
+            ResourceRecordSet: params.record,
+          },
+        ],
+      },
     })
   );
 }
@@ -124,11 +123,11 @@ async function deleteRecord(params: {
       ChangeBatch: {
         Changes: [
           {
-            Action: 'DELETE',
-            ResourceRecordSet: params.record
-          }
-        ]
-      }
+            Action: "DELETE",
+            ResourceRecordSet: params.record,
+          },
+        ],
+      },
     })
   );
 }
@@ -145,24 +144,26 @@ async function findExactRecord(
       HostedZoneId: hostedZoneId,
       StartRecordName: normalizedName,
       StartRecordType: type,
-      MaxItems: 10
+      MaxItems: 10,
     })
   );
 
   const record =
     result.ResourceRecordSets?.find(
       (item) =>
-        normalizeDnsName(item.Name ?? '') === normalizedName &&
+        normalizeDnsName(item.Name ?? "") === normalizedName &&
         item.Type === type
     ) ?? null;
 
   return record;
 }
 
-function buildDnsValidationResourceRecordSet(record: DnsValidationRecord): ResourceRecordSet {
+function buildDnsValidationResourceRecordSet(
+  record: DnsValidationRecord
+): ResourceRecordSet {
   const normalizedType = record.type.toUpperCase();
 
-  if (normalizedType !== 'CNAME') {
+  if (normalizedType !== "CNAME") {
     throw new Error(
       `Unsupported DNS validation record type "${record.type}". Expected CNAME.`
     );
@@ -170,13 +171,13 @@ function buildDnsValidationResourceRecordSet(record: DnsValidationRecord): Resou
 
   return {
     Name: toRoute53RecordName(record.name),
-    Type: 'CNAME',
+    Type: "CNAME",
     TTL: 300,
     ResourceRecords: [
       {
-        Value: ensureTrailingDot(record.value)
-      }
-    ]
+        Value: ensureTrailingDot(record.value),
+      },
+    ],
   };
 }
 
@@ -191,12 +192,13 @@ function buildCloudFrontAliasRecord(params: {
     AliasTarget: {
       DNSName: ensureTrailingDot(normalizeDnsName(params.cloudFrontDomainName)),
       HostedZoneId: CLOUDFRONT_HOSTED_ZONE_ID,
-      EvaluateTargetHealth: false
-    }
+      EvaluateTargetHealth: false,
+    },
   };
 }
 
 export async function upsertDnsValidationRecord(
+  hostedZoneId: string,
   name: string,
   type: string,
   value: string
@@ -206,23 +208,22 @@ export async function upsertDnsValidationRecord(
   hostedZoneId: string;
   upserted: true;
 }> {
+  if (!hostedZoneId) {
+    throw new Error("hostedZoneId is required for DNS validation upsert");
+  }
+
   const normalizedName = normalizeDnsName(name);
   const normalizedType = type.toUpperCase();
-  const hostedZoneId = await findBestHostedZoneId(normalizedName);
-
-  if (!hostedZoneId) {
-    throw new Error(`Hosted zone not found for DNS validation record ${normalizedName}`);
-  }
 
   const record = buildDnsValidationResourceRecordSet({
     name,
     type,
-    value
+    value,
   });
 
   await upsertRecord({
     hostedZoneId,
-    record
+    record,
   });
 
   console.log(
@@ -233,36 +234,36 @@ export async function upsertDnsValidationRecord(
     name: normalizedName,
     type: normalizedType,
     hostedZoneId,
-    upserted: true
+    upserted: true,
   };
 }
 
 export async function upsertCloudFrontAliasRecords(
+  hostedZoneId: string,
   domains: string[],
   cloudFrontDomainName: string
 ): Promise<{
+  hostedZoneId: string;
   cloudFrontDomainName: string;
   upsertedDomains: string[];
 }> {
+  if (!hostedZoneId) {
+    throw new Error("hostedZoneId is required for CloudFront alias upserts");
+  }
+
   const normalizedDomains = [...new Set(domains.map(normalizeDnsName))];
 
   for (const domain of normalizedDomains) {
-    const hostedZoneId = await findBestHostedZoneId(domain);
-
-    if (!hostedZoneId) {
-      throw new Error(`Hosted zone not found for alias domain ${domain}`);
-    }
-
     for (const type of toAliasRecordTypes()) {
       const record = buildCloudFrontAliasRecord({
         domain,
         cloudFrontDomainName,
-        type
+        type,
       });
 
       await upsertRecord({
         hostedZoneId,
-        record
+        record,
       });
 
       console.log(
@@ -272,8 +273,9 @@ export async function upsertCloudFrontAliasRecords(
   }
 
   return {
+    hostedZoneId,
     cloudFrontDomainName: normalizeDnsName(cloudFrontDomainName),
-    upsertedDomains: normalizedDomains
+    upsertedDomains: normalizedDomains,
   };
 }
 
@@ -294,7 +296,7 @@ async function removeSingleDnsRecordIfExists(params: {
 
   await deleteRecord({
     hostedZoneId: params.hostedZoneId,
-    record
+    record,
   });
 
   return true;
@@ -318,7 +320,7 @@ async function removeSingleAliasRecord(domain: string): Promise<{
     const removed = await removeSingleDnsRecordIfExists({
       hostedZoneId,
       name: normalizedDomain,
-      type
+      type,
     });
 
     if (removed) {
@@ -330,13 +332,15 @@ async function removeSingleAliasRecord(domain: string): Promise<{
   }
 
   if (!removedTypes.length) {
-    console.warn(`[ROUTE53] No alias records found for ${normalizedDomain}, skipping delete`);
+    console.warn(
+      `[ROUTE53] No alias records found for ${normalizedDomain}, skipping delete`
+    );
   }
 
   return {
     domain: normalizedDomain,
     removedTypes,
-    hostedZoneId
+    hostedZoneId,
   };
 }
 
@@ -353,13 +357,16 @@ export async function removeCloudFrontAliasRecords(domains: string[]) {
       const result = await removeSingleAliasRecord(domain);
       removed.push(result);
     } catch (error) {
-      console.warn(`[ROUTE53] Failed to remove alias record for ${domain}`, error);
+      console.warn(
+        `[ROUTE53] Failed to remove alias record for ${domain}`,
+        error
+      );
       throw error;
     }
   }
 
   return {
     removedDomains: normalizedDomains,
-    removed
+    removed,
   };
 }
