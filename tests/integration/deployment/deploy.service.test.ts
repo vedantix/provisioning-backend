@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("node:dns/promises", () => {
+  return {
+    default: {
+      resolveCname: vi.fn(),
+    },
+  };
+});
+
 vi.mock("../../../src/services/domain/domain-check.service", () => ({
   checkDomainAvailability: vi.fn(),
 }));
@@ -48,6 +56,8 @@ vi.mock("../../../src/services/aws/sqs.service", () => ({
   queueJob: vi.fn(),
 }));
 
+import dns from "node:dns/promises";
+
 import { deployWebsite } from "../../../src/services/deployment/deploy.service";
 import { checkDomainAvailability } from "../../../src/services/domain/domain-check.service";
 import { provisionRepository } from "../../../src/services/github/github-provision.service";
@@ -68,6 +78,18 @@ import { queueJob } from "../../../src/services/aws/sqs.service";
 describe("deploy.service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+
+    vi.mocked(dns.resolveCname).mockImplementation(async (name: string) => {
+      if (name.includes("_abc.test1.vedantix.nl")) {
+        return ["_target.acm-validations.aws."];
+      }
+
+      if (name.includes("_def.www.test1.vedantix.nl")) {
+        return ["_target2.acm-validations.aws."];
+      }
+
+      return [];
+    });
 
     vi.mocked(checkDomainAvailability).mockResolvedValue({
       domain: "test1.vedantix.nl",
@@ -98,6 +120,7 @@ describe("deploy.service", () => {
     } as any);
 
     vi.mocked(requestCertificate).mockResolvedValue("arn:test-cert");
+
     vi.mocked(getCertificateValidationRecords).mockResolvedValue([
       {
         domainName: "test1.vedantix.nl",
