@@ -81,11 +81,11 @@ export interface DeployRequest {
 
 interface DeploymentEvent {
   type:
-    | "DEPLOYMENT_CREATED"
-    | "STAGE_STARTED"
-    | "STAGE_COMPLETED"
-    | "DEPLOYMENT_FAILED"
-    | "DEPLOYMENT_SUCCEEDED";
+  | "DEPLOYMENT_CREATED"
+  | "STAGE_STARTED"
+  | "STAGE_COMPLETED"
+  | "DEPLOYMENT_FAILED"
+  | "DEPLOYMENT_SUCCEEDED";
   stage?: DeployStage;
   failedStage?: DeployStage;
   message?: string;
@@ -311,6 +311,63 @@ async function inferCurrentStageSafe(jobId: string): Promise<DeployStage> {
   }
 }
 
+function buildDeployWorkflowFile(): string {
+  return `name: Deploy website
+
+on:
+  workflow_dispatch:
+    inputs:
+      bucket:
+        description: S3 bucket name
+        required: true
+        type: string
+      distribution_id:
+        description: CloudFront distribution id
+        required: true
+        type: string
+      mode:
+        description: deploy or rollback
+        required: true
+        default: deploy
+        type: string
+      target_ref:
+        description: target git ref for rollback
+        required: false
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout current ref
+        if: \${{ inputs.mode == 'deploy' }}
+        uses: actions/checkout@v4
+
+      - name: Checkout rollback ref
+        if: \${{ inputs.mode == 'rollback' }}
+        uses: actions/checkout@v4
+        with:
+          ref: \${{ inputs.target_ref }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: \${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: \${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - name: Upload site to S3
+        run: aws s3 sync . s3://\${{ inputs.bucket }} --delete --exclude ".git/*" --exclude ".github/*"
+
+      - name: Invalidate CloudFront
+        run: aws cloudfront create-invalidation --distribution-id \${{ inputs.distribution_id }} --paths "/*"
+`;
+}
+
 export async function deployWebsite(input: DeployRequest) {
   const deploymentId = createId("dep");
   const jobId = createId("job");
@@ -403,11 +460,29 @@ export async function deployWebsite(input: DeployRequest) {
     // 2. GITHUB_PROVISION
     await markStageRunning(ctx, "GITHUB_PROVISION");
 
-    const provisionResult = await provisionRepository(repoName, normalizedDomain);
-
+    const provisionFiles = [
+      {
+        path: ".github/workflows/deploy.yml",
+        content: buildDeployWorkflowFile(),
+        message: `Add deploy workflow for ${normalizedDomain}`,
+      },
+    ];
+    
+    const provisionResult = await provisionRepository(
+      repoName,
+      normalizedDomain,
+      provisionFiles
+    );
+    
     if (!provisionResult.success) {
       throw new Error(
         `GitHub provisioning failed at stage ${provisionResult.stage}: ${provisionResult.error}`
+      );
+    }
+    
+    if (!provisionResult.workflowExists) {
+      throw new Error(
+        `GitHub provisioning completed, but no deployment workflow exists in repo ${provisionResult.repo}`
       );
     }
 

@@ -24,6 +24,19 @@ app.use('/api', deleteRoutes);
 app.use('/api', redeployRoutes);
 app.use('/api', rollbackRoutes);
 
+app.use((err: any, req: any, res: any, next: any) => {
+  console.error("[UNHANDLED ERROR]", {
+    message: err?.message,
+    stack: err?.stack,
+    name: err?.name,
+  });
+
+  res.status(500).json({
+    message: err?.message ?? "Internal Server Error",
+    stack: process.env.NODE_ENV !== "production" ? err?.stack : undefined,
+  });
+});
+
 app.listen(env.port, '0.0.0.0', () => {
   console.log(`Provisioning backend running on port ${env.port}`);
 });
