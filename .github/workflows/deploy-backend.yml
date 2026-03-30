@@ -12,27 +12,61 @@ permissions:
 
 env:
   AWS_REGION: eu-west-1
+  NODE_VERSION: 22
   ECR_REPOSITORY: provisioning-backend
   APP_RUNNER_SERVICE_NAME: vedantix-provisioning-api
 
 jobs:
-  deploy:
+  predeploy-checks:
+    name: Predeploy checks
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Fast integration tests
+        run: npm run test:integration -- tests/integration/fast
+
+  deploy:
+    name: Build and deploy to App Runner
+    runs-on: ubuntu-latest
+    needs: predeploy-checks
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Configure AWS credentials with OIDC
-        uses: aws-actions/configure-aws-credentials@v6.0.0
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Resolve account ID
+      - name: Resolve AWS account ID
         id: aws-account
         run: |
-          echo "account_id=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_OUTPUT"
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          if [ -z "$ACCOUNT_ID" ] || [ "$ACCOUNT_ID" = "None" ]; then
+            echo "Failed to resolve AWS account ID"
+            exit 1
+          fi
+          echo "account_id=$ACCOUNT_ID" >> "$GITHUB_OUTPUT"
 
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
@@ -40,8 +74,11 @@ jobs:
       - name: Set image URIs
         id: image
         run: |
-          echo "image_uri=${{ steps.aws-account.outputs.account_id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
-          echo "latest_uri=${{ steps.aws-account.outputs.account_id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:latest" >> "$GITHUB_OUTPUT"
+          IMAGE_URI="${{ steps.aws-account.outputs.account_id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
+          LATEST_URI="${{ steps.aws-account.outputs.account_id }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:latest"
+
+          echo "image_uri=$IMAGE_URI" >> "$GITHUB_OUTPUT"
+          echo "latest_uri=$LATEST_URI" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -50,8 +87,8 @@ jobs:
         run: |
           docker buildx build \
             --platform linux/amd64 \
-            -t "${{ steps.image.outputs.image_uri }}" \
-            -t "${{ steps.image.outputs.latest_uri }}" \
+            --tag "${{ steps.image.outputs.image_uri }}" \
+            --tag "${{ steps.image.outputs.latest_uri }}" \
             --push .
 
       - name: Resolve App Runner service ARN
@@ -63,7 +100,7 @@ jobs:
             --output text)
 
           if [ -z "$SERVICE_ARN" ] || [ "$SERVICE_ARN" = "None" ]; then
-            echo "App Runner service not found"
+            echo "App Runner service not found for name: ${APP_RUNNER_SERVICE_NAME}"
             exit 1
           fi
 

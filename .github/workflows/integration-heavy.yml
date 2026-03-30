@@ -1,0 +1,23 @@
+name: Integration (heavy)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 2 * * *" # elke nacht
+
+jobs:
+  integration-heavy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run heavy integration tests
+        run: npm run test:integration -- tests/integration/live

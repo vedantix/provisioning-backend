@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import dns from "node:dns/promises";
 
 import { checkDomainAvailability } from "../domain/domain-check.service";
 import { provisionRepository } from "../github/github-provision.service";
@@ -62,6 +63,7 @@ export type DeployStage =
   | "S3_BUCKET"
   | "ACM_REQUEST"
   | "ACM_VALIDATION_RECORDS"
+  | "ACM_DNS_PROPAGATION"
   | "ACM_WAIT"
   | "CLOUDFRONT"
   | "ROUTE53_ALIAS"
@@ -81,11 +83,11 @@ export interface DeployRequest {
 
 interface DeploymentEvent {
   type:
-  | "DEPLOYMENT_CREATED"
-  | "STAGE_STARTED"
-  | "STAGE_COMPLETED"
-  | "DEPLOYMENT_FAILED"
-  | "DEPLOYMENT_SUCCEEDED";
+    | "DEPLOYMENT_CREATED"
+    | "STAGE_STARTED"
+    | "STAGE_COMPLETED"
+    | "DEPLOYMENT_FAILED"
+    | "DEPLOYMENT_SUCCEEDED";
   stage?: DeployStage;
   failedStage?: DeployStage;
   message?: string;
@@ -101,6 +103,15 @@ interface PersistContext {
   domain: string;
   repo: string;
 }
+
+type AcmValidationRecordLike = {
+  domainName?: string;
+  validationDomain?: string;
+  validationStatus?: string;
+  name: string;
+  type: string;
+  value: string;
+};
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -130,6 +141,100 @@ function toErrorDetails(error: unknown): Record<string, unknown> {
   return {
     message: String(error),
   };
+}
+
+function normalizeDnsValue(value: string): string {
+  return value.trim().toLowerCase().replace(/\.$/, "");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function resolveCnameSafe(name: string): Promise<string[]> {
+  try {
+    const result = await dns.resolveCname(name);
+    return result.map(normalizeDnsValue);
+  } catch {
+    return [];
+  }
+}
+
+async function waitForDnsValidationRecords(params: {
+  records: AcmValidationRecordLike[];
+  maxAttempts?: number;
+  delayMs?: number;
+}): Promise<
+  Array<{
+    domainName?: string;
+    name: string;
+    expectedValue: string;
+    resolvedValues: string[];
+    matched: boolean;
+  }>
+> {
+  const maxAttempts = params.maxAttempts ?? 40;
+  const delayMs = params.delayMs ?? 15000;
+
+  if (!params.records.length) {
+    throw new Error("No ACM validation records available to verify");
+  }
+
+  let lastSnapshot: Array<{
+    domainName?: string;
+    name: string;
+    expectedValue: string;
+    resolvedValues: string[];
+    matched: boolean;
+  }> = [];
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const snapshot: Array<{
+      domainName?: string;
+      name: string;
+      expectedValue: string;
+      resolvedValues: string[];
+      matched: boolean;
+    }> = [];
+
+    for (const record of params.records) {
+      const resolvedValues = await resolveCnameSafe(record.name);
+      const expectedValue = normalizeDnsValue(record.value);
+      const matched = resolvedValues.includes(expectedValue);
+
+      snapshot.push({
+        domainName: record.domainName,
+        name: record.name,
+        expectedValue,
+        resolvedValues,
+        matched,
+      });
+    }
+
+    lastSnapshot = snapshot;
+
+    console.log(`[ACM_DNS_PROPAGATION] attempt ${attempt}/${maxAttempts}`);
+
+    for (const item of snapshot) {
+      console.log(
+        `[ACM_DNS_PROPAGATION] domain=${item.domainName ?? "unknown"} name=${item.name} expected=${item.expectedValue} resolved=${item.resolvedValues.join(",") || "<none>"} matched=${item.matched}`
+      );
+    }
+
+    if (snapshot.every((item) => item.matched)) {
+      return snapshot;
+    }
+
+    if (attempt < maxAttempts) {
+      await sleep(delayMs);
+    }
+  }
+
+  throw new Error(
+    `Timed out waiting for ACM validation DNS records to propagate: ${JSON.stringify(
+      lastSnapshot
+    )}`
+  );
 }
 
 async function markStageRunning(
@@ -311,7 +416,7 @@ async function inferCurrentStageSafe(jobId: string): Promise<DeployStage> {
   }
 }
 
-function buildDeployWorkflowFile(): string {
+export function buildDeployWorkflowFile(): string {
   return `name: Deploy website
 
 on:
@@ -543,6 +648,12 @@ export async function deployWebsite(input: DeployRequest) {
 
     const validationRecords = await getCertificateValidationRecords(certificateArn);
 
+    if (!validationRecords.length) {
+      throw new Error(
+        `ACM returned no DNS validation records for certificate ${certificateArn}`
+      );
+    }
+
     const validationResults: Array<{
       name: string;
       type: string;
@@ -567,7 +678,20 @@ export async function deployWebsite(input: DeployRequest) {
       certificateValidationResults: validationResults,
     });
 
-    // 6. ACM_WAIT
+    // 6. ACM_DNS_PROPAGATION
+    await markStageRunning(ctx, "ACM_DNS_PROPAGATION");
+
+    const dnsPropagationResult = await waitForDnsValidationRecords({
+      records: validationRecords,
+      maxAttempts: 40,
+      delayMs: 15000,
+    });
+
+    await markStageCompleted(ctx, "ACM_DNS_PROPAGATION", {
+      certificateValidationDnsPropagation: dnsPropagationResult,
+    });
+
+    // 7. ACM_WAIT
     await markStageRunning(ctx, "ACM_WAIT");
 
     await waitForCertificateIssued(certificateArn);
@@ -576,7 +700,7 @@ export async function deployWebsite(input: DeployRequest) {
       certificateStatus: "ISSUED",
     });
 
-    // 7. CLOUDFRONT
+    // 8. CLOUDFRONT
     await markStageRunning(ctx, "CLOUDFRONT");
 
     const distribution = await createDistribution({
@@ -600,7 +724,7 @@ export async function deployWebsite(input: DeployRequest) {
       oacId: distribution.oacId,
     });
 
-    // 8. ROUTE53_ALIAS
+    // 9. ROUTE53_ALIAS
     await markStageRunning(ctx, "ROUTE53_ALIAS");
 
     const aliasResult = await upsertCloudFrontAliasRecords(
@@ -615,7 +739,7 @@ export async function deployWebsite(input: DeployRequest) {
       route53CloudFrontDomainName: aliasResult.cloudFrontDomainName,
     });
 
-    // 9. GITHUB_DISPATCH
+    // 10. GITHUB_DISPATCH
     await markStageRunning(ctx, "GITHUB_DISPATCH");
 
     const dispatchResult = await dispatchDeploymentWorkflow({
@@ -633,7 +757,7 @@ export async function deployWebsite(input: DeployRequest) {
       githubDispatch: dispatchResult.details,
     });
 
-    // 10. DYNAMODB
+    // 11. DYNAMODB
     await markStageRunning(ctx, "DYNAMODB");
 
     await Promise.all([
@@ -678,7 +802,7 @@ export async function deployWebsite(input: DeployRequest) {
 
     await markStageCompleted(ctx, "DYNAMODB");
 
-    // 11. SQS
+    // 12. SQS
     await markStageRunning(ctx, "SQS");
 
     const messageId = await queueJob({
