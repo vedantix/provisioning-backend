@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import dns from "node:dns/promises";
 
 import {
   ensureValidDomain,
@@ -51,11 +52,11 @@ type DeploymentStatus =
 
 interface DomainEvent {
   type:
-  | "DOMAIN_ADD_STARTED"
-  | "DOMAIN_ADD_FAILED"
-  | "DOMAIN_ADDED"
-  | "DOMAIN_STAGE_STARTED"
-  | "DOMAIN_STAGE_COMPLETED";
+    | "DOMAIN_ADD_STARTED"
+    | "DOMAIN_ADD_FAILED"
+    | "DOMAIN_ADDED"
+    | "DOMAIN_STAGE_STARTED"
+    | "DOMAIN_STAGE_COMPLETED";
   domain: string;
   domainsApplied?: string[];
   stage?: AddDomainStage;
@@ -63,6 +64,15 @@ interface DomainEvent {
   at: string;
   details?: Record<string, unknown>;
 }
+
+type AcmValidationRecordLike = {
+  domainName?: string;
+  validationDomain?: string;
+  validationStatus?: string;
+  name: string;
+  type: string;
+  value: string;
+};
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -106,6 +116,100 @@ function createStage(stage: AddDomainStage): AddDomainStageRecord {
   };
 }
 
+function normalizeDnsValue(value: string): string {
+  return value.trim().toLowerCase().replace(/\.$/, "");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function resolveCnameSafe(name: string): Promise<string[]> {
+  try {
+    const result = await dns.resolveCname(name);
+    return result.map(normalizeDnsValue);
+  } catch {
+    return [];
+  }
+}
+
+async function waitForDnsValidationRecords(params: {
+  records: AcmValidationRecordLike[];
+  maxAttempts?: number;
+  delayMs?: number;
+}): Promise<
+  Array<{
+    domainName?: string;
+    name: string;
+    expectedValue: string;
+    resolvedValues: string[];
+    matched: boolean;
+  }>
+> {
+  const maxAttempts = params.maxAttempts ?? 40;
+  const delayMs = params.delayMs ?? 15000;
+
+  if (!params.records.length) {
+    throw new Error("No ACM validation records available to verify");
+  }
+
+  let lastSnapshot: Array<{
+    domainName?: string;
+    name: string;
+    expectedValue: string;
+    resolvedValues: string[];
+    matched: boolean;
+  }> = [];
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const snapshot: Array<{
+      domainName?: string;
+      name: string;
+      expectedValue: string;
+      resolvedValues: string[];
+      matched: boolean;
+    }> = [];
+
+    for (const record of params.records) {
+      const resolvedValues = await resolveCnameSafe(record.name);
+      const expectedValue = normalizeDnsValue(record.value);
+      const matched = resolvedValues.includes(expectedValue);
+
+      snapshot.push({
+        domainName: record.domainName,
+        name: record.name,
+        expectedValue,
+        resolvedValues,
+        matched,
+      });
+    }
+
+    lastSnapshot = snapshot;
+
+    console.log(`[ADD_DOMAIN][ACM_DNS_PROPAGATION] attempt ${attempt}/${maxAttempts}`);
+
+    for (const item of snapshot) {
+      console.log(
+        `[ADD_DOMAIN][ACM_DNS_PROPAGATION] domain=${item.domainName ?? "unknown"} name=${item.name} expected=${item.expectedValue} resolved=${item.resolvedValues.join(",") || "<none>"} matched=${item.matched}`
+      );
+    }
+
+    if (snapshot.every((item) => item.matched)) {
+      return snapshot;
+    }
+
+    if (attempt < maxAttempts) {
+      await sleep(delayMs);
+    }
+  }
+
+  throw new Error(
+    `Timed out waiting for ACM validation DNS records to propagate: ${JSON.stringify(
+      lastSnapshot
+    )}`
+  );
+}
+
 async function appendDomainEvent(params: {
   deploymentId: string;
   event: DomainEvent;
@@ -128,6 +232,7 @@ async function markJobRunning(params: {
     set: {
       status: "RUNNING" as JobStatus,
       currentStage: params.stage,
+      updatedAt: nowIso(),
       ...params.extra,
     },
   });
@@ -149,6 +254,7 @@ async function markJobFailed(params: {
       currentStage: params.stage,
       lastError: errorMessage,
       lastErrorDetails: errorDetails,
+      updatedAt: nowIso(),
       ...params.extra,
     },
   });
@@ -163,7 +269,38 @@ async function markJobSucceeded(params: {
     set: {
       status: "SUCCEEDED" as JobStatus,
       completedAt: nowIso(),
+      updatedAt: nowIso(),
       ...params.extra,
+    },
+  });
+}
+
+async function failDeploymentStage(params: {
+  deploymentId: string;
+  domain: string;
+  stage: AddDomainStage;
+  error: unknown;
+}): Promise<void> {
+  await updateDeployment({
+    deploymentId: params.deploymentId,
+    set: {
+      status: "FAILED" as DeploymentStatus,
+      currentStage: params.stage,
+      lastError: toErrorMessage(params.error),
+      lastErrorDetails: toErrorDetails(params.error),
+      updatedAt: nowIso(),
+    },
+    appendToLists: {
+      domainEvents: [
+        {
+          type: "DOMAIN_ADD_FAILED",
+          domain: params.domain,
+          stage: params.stage,
+          message: toErrorMessage(params.error),
+          at: nowIso(),
+          details: toErrorDetails(params.error),
+        } as DomainEvent,
+      ],
     },
   });
 }
@@ -271,6 +408,9 @@ export async function addDomainToDeployment(
   let distributionId: string | undefined;
   let cloudFrontDomainName: string | undefined;
   let distributionArn: string | undefined;
+  let hostedZoneId: string | undefined;
+  let rootDomain: string | undefined;
+  let validationRecords: AcmValidationRecordLike[] = [];
 
   await putJob({
     id: jobId,
@@ -322,6 +462,15 @@ export async function addDomainToDeployment(
           );
         }
 
+        if (!domainCheck.hostedZoneId) {
+          throw new Error(
+            `Domain check succeeded but hostedZoneId is missing for ${newRootDomain}`
+          );
+        }
+
+        hostedZoneId = domainCheck.hostedZoneId;
+        rootDomain = domainCheck.rootDomain;
+
         return domainCheck;
       },
       {
@@ -348,6 +497,9 @@ export async function addDomainToDeployment(
             set: {
               currentStage: "DOMAIN_CHECK",
               domainCheck: value,
+              hostedZoneId,
+              rootDomain,
+              updatedAt: nowIso(),
             },
             appendToLists: {
               domainEvents: [
@@ -358,6 +510,8 @@ export async function addDomainToDeployment(
                   at: nowIso(),
                   details: {
                     status: value.status,
+                    hostedZoneId,
+                    rootDomain,
                   },
                 } as DomainEvent,
               ],
@@ -371,26 +525,11 @@ export async function addDomainToDeployment(
               stage: "DOMAIN_CHECK",
               error,
             }),
-            updateDeployment({
+            failDeploymentStage({
               deploymentId: params.deploymentId,
-              set: {
-                status: "FAILED" as DeploymentStatus,
-                currentStage: "DOMAIN_CHECK",
-                lastError: toErrorMessage(error),
-                lastErrorDetails: toErrorDetails(error),
-              },
-              appendToLists: {
-                domainEvents: [
-                  {
-                    type: "DOMAIN_ADD_FAILED",
-                    domain: newRootDomain,
-                    stage: "DOMAIN_CHECK",
-                    message: toErrorMessage(error),
-                    at: nowIso(),
-                    details: toErrorDetails(error),
-                  } as DomainEvent,
-                ],
-              },
+              domain: newRootDomain,
+              stage: "DOMAIN_CHECK",
+              error,
             }),
           ]);
         },
@@ -451,6 +590,7 @@ export async function addDomainToDeployment(
               deploymentId: params.deploymentId,
               set: {
                 currentStage: "DEPLOYMENT_LOOKUP",
+                updatedAt: nowIso(),
               },
               appendToLists: {
                 domainEvents: [
@@ -471,6 +611,7 @@ export async function addDomainToDeployment(
             set: {
               currentStage: "DEPLOYMENT_LOOKUP",
               domainLookup: value,
+              updatedAt: nowIso(),
             },
             appendToLists: {
               domainEvents: [
@@ -491,26 +632,11 @@ export async function addDomainToDeployment(
               stage: "DEPLOYMENT_LOOKUP",
               error,
             }),
-            updateDeployment({
+            failDeploymentStage({
               deploymentId: params.deploymentId,
-              set: {
-                status: "FAILED" as DeploymentStatus,
-                currentStage: "DEPLOYMENT_LOOKUP",
-                lastError: toErrorMessage(error),
-                lastErrorDetails: toErrorDetails(error),
-              },
-              appendToLists: {
-                domainEvents: [
-                  {
-                    type: "DOMAIN_ADD_FAILED",
-                    domain: newRootDomain,
-                    stage: "DEPLOYMENT_LOOKUP",
-                    message: toErrorMessage(error),
-                    at: nowIso(),
-                    details: toErrorDetails(error),
-                  } as DomainEvent,
-                ],
-              },
+              domain: newRootDomain,
+              stage: "DEPLOYMENT_LOOKUP",
+              error,
             }),
           ]);
         },
@@ -584,6 +710,7 @@ export async function addDomainToDeployment(
               deploymentId: params.deploymentId,
               set: {
                 currentStage: "ACM_REQUEST",
+                updatedAt: nowIso(),
               },
               appendToLists: {
                 domainEvents: [
@@ -604,6 +731,7 @@ export async function addDomainToDeployment(
             set: {
               currentStage: "ACM_REQUEST",
               pendingCertificateArn: value.certificateArn,
+              updatedAt: nowIso(),
             },
             appendToLists: {
               domainEvents: [
@@ -625,26 +753,11 @@ export async function addDomainToDeployment(
               stage: "ACM_REQUEST",
               error,
             }),
-            updateDeployment({
+            failDeploymentStage({
               deploymentId: params.deploymentId,
-              set: {
-                status: "FAILED" as DeploymentStatus,
-                currentStage: "ACM_REQUEST",
-                lastError: toErrorMessage(error),
-                lastErrorDetails: toErrorDetails(error),
-              },
-              appendToLists: {
-                domainEvents: [
-                  {
-                    type: "DOMAIN_ADD_FAILED",
-                    domain: newRootDomain,
-                    stage: "ACM_REQUEST",
-                    message: toErrorMessage(error),
-                    at: nowIso(),
-                    details: toErrorDetails(error),
-                  } as DomainEvent,
-                ],
-              },
+              domain: newRootDomain,
+              stage: "ACM_REQUEST",
+              error,
             }),
           ]);
         },
@@ -675,7 +788,18 @@ export async function addDomainToDeployment(
           throw new Error("certificateArn missing before validation records");
         }
 
-        const validationRecords = await getCertificateValidationRecords(certificateArn);
+        if (!hostedZoneId) {
+          throw new Error("hostedZoneId missing before validation records");
+        }
+
+        validationRecords = await getCertificateValidationRecords(certificateArn);
+
+        if (!validationRecords.length) {
+          throw new Error(
+            `ACM returned no DNS validation records for certificate ${certificateArn}`
+          );
+        }
+
         const appliedRecords: Array<{
           name: string;
           type: string;
@@ -685,6 +809,7 @@ export async function addDomainToDeployment(
 
         for (const record of validationRecords) {
           const applied = await upsertDnsValidationRecord(
+            hostedZoneId,
             record.name,
             record.type,
             record.value
@@ -709,6 +834,7 @@ export async function addDomainToDeployment(
               deploymentId: params.deploymentId,
               set: {
                 currentStage: "ACM_VALIDATION_RECORDS",
+                updatedAt: nowIso(),
               },
               appendToLists: {
                 domainEvents: [
@@ -729,6 +855,7 @@ export async function addDomainToDeployment(
             set: {
               currentStage: "ACM_VALIDATION_RECORDS",
               certificateValidationSummary: value,
+              updatedAt: nowIso(),
             },
             appendToLists: {
               domainEvents: [
@@ -750,26 +877,11 @@ export async function addDomainToDeployment(
               stage: "ACM_VALIDATION_RECORDS",
               error,
             }),
-            updateDeployment({
+            failDeploymentStage({
               deploymentId: params.deploymentId,
-              set: {
-                status: "FAILED" as DeploymentStatus,
-                currentStage: "ACM_VALIDATION_RECORDS",
-                lastError: toErrorMessage(error),
-                lastErrorDetails: toErrorDetails(error),
-              },
-              appendToLists: {
-                domainEvents: [
-                  {
-                    type: "DOMAIN_ADD_FAILED",
-                    domain: newRootDomain,
-                    stage: "ACM_VALIDATION_RECORDS",
-                    message: toErrorMessage(error),
-                    at: nowIso(),
-                    details: toErrorDetails(error),
-                  } as DomainEvent,
-                ],
-              },
+              domain: newRootDomain,
+              stage: "ACM_VALIDATION_RECORDS",
+              error,
             }),
           ]);
         },
@@ -790,7 +902,104 @@ export async function addDomainToDeployment(
     }
   }
 
-  // 5. ACM_WAIT
+  // 5. ACM_DNS_PROPAGATION
+  {
+    const result = await runStage(
+      stages,
+      "ACM_DNS_PROPAGATION",
+      async () => {
+        const propagation = await waitForDnsValidationRecords({
+          records: validationRecords,
+          maxAttempts: 40,
+          delayMs: 15000,
+        });
+
+        return {
+          certificateArn,
+          propagation,
+        };
+      },
+      {
+        onStart: async () => {
+          await Promise.all([
+            markJobRunning({
+              jobId,
+              stage: "ACM_DNS_PROPAGATION",
+            }),
+            updateDeployment({
+              deploymentId: params.deploymentId,
+              set: {
+                currentStage: "ACM_DNS_PROPAGATION",
+                updatedAt: nowIso(),
+              },
+              appendToLists: {
+                domainEvents: [
+                  {
+                    type: "DOMAIN_STAGE_STARTED",
+                    domain: newRootDomain,
+                    stage: "ACM_DNS_PROPAGATION",
+                    at: nowIso(),
+                  } as DomainEvent,
+                ],
+              },
+            }),
+          ]);
+        },
+        onSuccess: async (value) => {
+          await updateDeployment({
+            deploymentId: params.deploymentId,
+            set: {
+              currentStage: "ACM_DNS_PROPAGATION",
+              certificateValidationDnsPropagation: value,
+              updatedAt: nowIso(),
+            },
+            appendToLists: {
+              domainEvents: [
+                {
+                  type: "DOMAIN_STAGE_COMPLETED",
+                  domain: newRootDomain,
+                  stage: "ACM_DNS_PROPAGATION",
+                  at: nowIso(),
+                  details: value,
+                } as DomainEvent,
+              ],
+            },
+          });
+        },
+        onFailure: async (error) => {
+          await Promise.all([
+            markJobFailed({
+              jobId,
+              stage: "ACM_DNS_PROPAGATION",
+              error,
+            }),
+            failDeploymentStage({
+              deploymentId: params.deploymentId,
+              domain: newRootDomain,
+              stage: "ACM_DNS_PROPAGATION",
+              error,
+            }),
+          ]);
+        },
+      }
+    );
+
+    if (!result.ok) {
+      return {
+        success: false,
+        stage: "ACM_DNS_PROPAGATION",
+        error: result.error,
+        details: {
+          certificateArn,
+          validationRecords,
+          originalError: result.details,
+        },
+        stages,
+      };
+    }
+  }
+
+  // 6. ACM_WAIT
   {
     const result = await runStage(
       stages,
@@ -818,6 +1027,7 @@ export async function addDomainToDeployment(
               deploymentId: params.deploymentId,
               set: {
                 currentStage: "ACM_WAIT",
+                updatedAt: nowIso(),
               },
               appendToLists: {
                 domainEvents: [
@@ -838,6 +1048,7 @@ export async function addDomainToDeployment(
             set: {
               currentStage: "ACM_WAIT",
               certificateStatus: value.status,
+              updatedAt: nowIso(),
             },
             appendToLists: {
               domainEvents: [
@@ -859,26 +1070,11 @@ export async function addDomainToDeployment(
               stage: "ACM_WAIT",
               error,
             }),
-            updateDeployment({
+            failDeploymentStage({
               deploymentId: params.deploymentId,
-              set: {
-                status: "FAILED" as DeploymentStatus,
-                currentStage: "ACM_WAIT",
-                lastError: toErrorMessage(error),
-                lastErrorDetails: toErrorDetails(error),
-              },
-              appendToLists: {
-                domainEvents: [
-                  {
-                    type: "DOMAIN_ADD_FAILED",
-                    domain: newRootDomain,
-                    stage: "ACM_WAIT",
-                    message: toErrorMessage(error),
-                    at: nowIso(),
-                    details: toErrorDetails(error),
-                  } as DomainEvent,
-                ],
-              },
+              domain: newRootDomain,
+              stage: "ACM_WAIT",
+              error,
             }),
           ]);
         },
@@ -899,7 +1095,7 @@ export async function addDomainToDeployment(
     }
   }
 
-  // 6. CLOUDFRONT_UPDATE
+  // 7. CLOUDFRONT_UPDATE
   {
     const result = await runStage(
       stages,
@@ -950,6 +1146,7 @@ export async function addDomainToDeployment(
               deploymentId: params.deploymentId,
               set: {
                 currentStage: "CLOUDFRONT_UPDATE",
+                updatedAt: nowIso(),
               },
               appendToLists: {
                 domainEvents: [
@@ -973,6 +1170,7 @@ export async function addDomainToDeployment(
               cloudfrontDomainName: value.cloudFrontDomainName,
               certificateArn,
               domains: value.allDomains,
+              updatedAt: nowIso(),
             },
             appendToLists: {
               domainEvents: [
@@ -994,26 +1192,11 @@ export async function addDomainToDeployment(
               stage: "CLOUDFRONT_UPDATE",
               error,
             }),
-            updateDeployment({
+            failDeploymentStage({
               deploymentId: params.deploymentId,
-              set: {
-                status: "FAILED" as DeploymentStatus,
-                currentStage: "CLOUDFRONT_UPDATE",
-                lastError: toErrorMessage(error),
-                lastErrorDetails: toErrorDetails(error),
-              },
-              appendToLists: {
-                domainEvents: [
-                  {
-                    type: "DOMAIN_ADD_FAILED",
-                    domain: newRootDomain,
-                    stage: "CLOUDFRONT_UPDATE",
-                    message: toErrorMessage(error),
-                    at: nowIso(),
-                    details: toErrorDetails(error),
-                  } as DomainEvent,
-                ],
-              },
+              domain: newRootDomain,
+              stage: "CLOUDFRONT_UPDATE",
+              error,
             }),
           ]);
         },
@@ -1035,7 +1218,7 @@ export async function addDomainToDeployment(
     }
   }
 
-  // 7. ROUTE53_ALIAS
+  // 8. ROUTE53_ALIAS
   {
     const result = await runStage(
       stages,
@@ -1047,7 +1230,12 @@ export async function addDomainToDeployment(
           );
         }
 
+        if (!hostedZoneId) {
+          throw new Error("hostedZoneId missing before Route53 alias update");
+        }
+
         const aliasResult = await upsertCloudFrontAliasRecords(
+          hostedZoneId,
           newDomainSet,
           cloudFrontDomainName
         );
@@ -1069,6 +1257,7 @@ export async function addDomainToDeployment(
               deploymentId: params.deploymentId,
               set: {
                 currentStage: "ROUTE53_ALIAS",
+                updatedAt: nowIso(),
               },
               appendToLists: {
                 domainEvents: [
@@ -1088,6 +1277,7 @@ export async function addDomainToDeployment(
             deploymentId: params.deploymentId,
             set: {
               currentStage: "ROUTE53_ALIAS",
+              updatedAt: nowIso(),
             },
             appendToLists: {
               domainEvents: [
@@ -1109,26 +1299,11 @@ export async function addDomainToDeployment(
               stage: "ROUTE53_ALIAS",
               error,
             }),
-            updateDeployment({
+            failDeploymentStage({
               deploymentId: params.deploymentId,
-              set: {
-                status: "FAILED" as DeploymentStatus,
-                currentStage: "ROUTE53_ALIAS",
-                lastError: toErrorMessage(error),
-                lastErrorDetails: toErrorDetails(error),
-              },
-              appendToLists: {
-                domainEvents: [
-                  {
-                    type: "DOMAIN_ADD_FAILED",
-                    domain: newRootDomain,
-                    stage: "ROUTE53_ALIAS",
-                    message: toErrorMessage(error),
-                    at: nowIso(),
-                    details: toErrorDetails(error),
-                  } as DomainEvent,
-                ],
-              },
+              domain: newRootDomain,
+              stage: "ROUTE53_ALIAS",
+              error,
             }),
           ]);
         },
@@ -1150,7 +1325,7 @@ export async function addDomainToDeployment(
     }
   }
 
-  // 8. DYNAMODB
+  // 9. DYNAMODB
   {
     const result = await runStage(
       stages,
@@ -1173,7 +1348,10 @@ export async function addDomainToDeployment(
             cloudfrontDistributionId: distributionId,
             cloudfrontDomainName: cloudFrontDomainName,
             certificateArn,
+            hostedZoneId,
+            rootDomain,
             domains: allDomains,
+            updatedAt: nowIso(),
           },
           appendToLists: {
             domainEvents: [
@@ -1186,7 +1364,10 @@ export async function addDomainToDeployment(
                 details: {
                   distributionId,
                   cloudFrontDomainName,
+                  distributionArn,
                   certificateArn,
+                  hostedZoneId,
+                  rootDomain,
                 },
               } as DomainEvent,
             ],
@@ -1198,6 +1379,8 @@ export async function addDomainToDeployment(
           deploymentId: ownedDeployment.deploymentId,
           domains: allDomains,
           certificateArn,
+          hostedZoneId,
+          rootDomain,
         };
       },
       {
@@ -1218,11 +1401,16 @@ export async function addDomainToDeployment(
                   addedDomain: newRootDomain,
                   allDomains: value.domains,
                   certificateArn: value.certificateArn,
+                  hostedZoneId: value.hostedZoneId,
+                  rootDomain: value.rootDomain,
                 },
               },
             }),
             updateDeployment({
               deploymentId: params.deploymentId,
+              set: {
+                updatedAt: nowIso(),
+              },
               appendToLists: {
                 domainEvents: [
                   {
@@ -1244,26 +1432,11 @@ export async function addDomainToDeployment(
               stage: "DYNAMODB",
               error,
             }),
-            updateDeployment({
+            failDeploymentStage({
               deploymentId: params.deploymentId,
-              set: {
-                status: "FAILED" as DeploymentStatus,
-                currentStage: "DYNAMODB",
-                lastError: toErrorMessage(error),
-                lastErrorDetails: toErrorDetails(error),
-              },
-              appendToLists: {
-                domainEvents: [
-                  {
-                    type: "DOMAIN_ADD_FAILED",
-                    domain: newRootDomain,
-                    stage: "DYNAMODB",
-                    message: toErrorMessage(error),
-                    at: nowIso(),
-                    details: toErrorDetails(error),
-                  } as DomainEvent,
-                ],
-              },
+              domain: newRootDomain,
+              stage: "DYNAMODB",
+              error,
             }),
           ]);
         },

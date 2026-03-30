@@ -22,6 +22,7 @@ export type DomainOwnershipCheckResult = {
     | 'DOMAIN_CHECK'
     | 'DEPLOYMENT_LOOKUP'
     | 'ACM_REQUEST'
+    | 'ACM_DNS_PROPAGATION'
     | 'ACM_VALIDATION_RECORDS'
     | 'ACM_WAIT'
     | 'CLOUDFRONT_UPDATE'
@@ -59,6 +60,8 @@ export type DomainOwnershipCheckResult = {
     certificateArn: string;
     distributionId: string;
     cloudFrontDomainName?: string;
+    hostedZoneId?: string;
+    rootDomain?: string;
     stages: AddDomainStageRecord[];
   };
   

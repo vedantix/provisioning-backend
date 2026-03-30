@@ -65,7 +65,7 @@ describe("POST /api/deploy", () => {
       .send({
         customerId: "cust_1",
         projectName: "repo-1",
-        domain: "test2.vedantix.nl",
+        domain: "test1.vedantix.nl",
         packageCode: "STARTER",
         addOns: [],
       });
