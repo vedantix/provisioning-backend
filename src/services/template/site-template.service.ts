@@ -1,171 +1,190 @@
-export function generateIndexHtml(domain: string) {
-    return `<!DOCTYPE html>
-  <html lang="en">
+export function generateIndexHtml(domain: string): string {
+  return `<!doctype html>
+<html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>${domain}</title>
-    <meta name="description" content="Website for ${domain}" />
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1"
+    />
+    <title>${domain} | Vedantix Deployment</title>
+    <meta
+      name="description"
+      content="Starter website provisioned automatically by Vedantix for ${domain}."
+    />
     <style>
       :root {
-        color-scheme: light;
-        --bg: #0b1020;
-        --card: #121933;
-        --text: #f3f6ff;
-        --muted: #b7c1e0;
-        --accent: #6ea8fe;
-        --accent-2: #8ef0c8;
+        color-scheme: light dark;
       }
+
       * {
         box-sizing: border-box;
       }
+
       body {
         margin: 0;
-        min-height: 100vh;
         font-family: Inter, Arial, sans-serif;
-        background:
-          radial-gradient(circle at top right, rgba(110,168,254,0.18), transparent 25%),
-          radial-gradient(circle at bottom left, rgba(142,240,200,0.12), transparent 25%),
-          var(--bg);
-        color: var(--text);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 24px;
+        line-height: 1.5;
+        background: #0f172a;
+        color: #e5e7eb;
       }
+
+      .wrap {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 32px;
+      }
+
       .card {
         width: 100%;
-        max-width: 860px;
-        background: rgba(18, 25, 51, 0.88);
-        border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 24px;
-        padding: 40px;
-        box-shadow: 0 24px 80px rgba(0,0,0,0.35);
-        backdrop-filter: blur(10px);
+        max-width: 760px;
+        background: rgba(15, 23, 42, 0.88);
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 20px;
+        padding: 32px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28);
       }
+
       .badge {
         display: inline-block;
-        padding: 8px 14px;
+        padding: 8px 12px;
         border-radius: 999px;
-        background: rgba(110,168,254,0.12);
-        color: var(--accent);
-        font-size: 13px;
-        font-weight: 600;
+        background: rgba(59, 130, 246, 0.14);
+        color: #93c5fd;
+        font-size: 12px;
+        font-weight: 700;
         letter-spacing: 0.04em;
         text-transform: uppercase;
       }
+
       h1 {
-        font-size: 48px;
-        line-height: 1.05;
         margin: 18px 0 12px;
+        font-size: clamp(32px, 5vw, 52px);
+        line-height: 1.05;
       }
+
       p {
-        color: var(--muted);
-        font-size: 18px;
-        line-height: 1.7;
-        margin: 0;
+        margin: 0 0 16px;
+        color: #cbd5e1;
+        font-size: 16px;
       }
+
       .grid {
-        margin-top: 28px;
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
         gap: 16px;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        margin-top: 28px;
       }
+
       .item {
-        background: rgba(255,255,255,0.04);
-        border: 1px solid rgba(255,255,255,0.06);
-        border-radius: 18px;
         padding: 18px;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(148, 163, 184, 0.12);
       }
+
       .item h2 {
-        margin: 0 0 8px;
+        margin: 0 0 10px;
         font-size: 18px;
       }
-      .item p {
-        font-size: 15px;
-      }
-      .footer {
-        margin-top: 28px;
+
+      .domain {
+        margin-top: 24px;
         font-size: 14px;
-        color: var(--muted);
+        color: #94a3b8;
+        word-break: break-word;
       }
-      .highlight {
-        color: var(--accent-2);
-        font-weight: 700;
+
+      a {
+        color: #93c5fd;
       }
     </style>
   </head>
   <body>
-    <main class="card">
-      <span class="badge">Vedantix Deployment</span>
-      <h1>${domain} is live.</h1>
-      <p>
-        This starter website was provisioned automatically by
-        <span class="highlight">Vedantix</span>.
-      </p>
-  
-      <section class="grid">
-        <article class="item">
-          <h2>Fast delivery</h2>
-          <p>Your new website infrastructure has been provisioned and deployed automatically.</p>
-        </article>
-        <article class="item">
-          <h2>Secure by default</h2>
-          <p>Hosted behind CloudFront with DNS and certificate automation handled by the platform.</p>
-        </article>
-        <article class="item">
-          <h2>Ready to customize</h2>
-          <p>You can now replace this starter page with your real project files and workflow.</p>
-        </article>
+    <main class="wrap">
+      <section class="card">
+        <span class="badge">Vedantix Provisioning</span>
+        <h1>${domain} is live.</h1>
+        <p>
+          This starter website was provisioned automatically by Vedantix.
+        </p>
+        <p>
+          Infrastructure, DNS, certificate handling, and deployment flow are in place.
+          You can now replace this starter page with the real project output.
+        </p>
+
+        <div class="grid">
+          <article class="item">
+            <h2>Fast delivery</h2>
+            <p>
+              The repository, workflow, and hosting pipeline were generated automatically.
+            </p>
+          </article>
+
+          <article class="item">
+            <h2>Secure by default</h2>
+            <p>
+              The site is intended to run behind CloudFront with managed DNS and ACM.
+            </p>
+          </article>
+
+          <article class="item">
+            <h2>Ready to customize</h2>
+            <p>
+              Replace this page, add real assets, and keep using the same deploy workflow.
+            </p>
+          </article>
+        </div>
+
+        <p class="domain">
+          Domain: <strong>${domain}</strong>
+        </p>
       </section>
-  
-      <div class="footer">
-        Domain: <strong>${domain}</strong>
-      </div>
     </main>
   </body>
-  </html>`;
-  }
-  
-  export function generatePackageJson() {
-    return JSON.stringify(
-      {
-        name: 'customer-site',
-        private: true,
-        version: '1.0.0',
-        scripts: {
-          build: 'node scripts/build.js'
-        }
+</html>`;
+}
+
+export function generatePackageJson(): string {
+  return JSON.stringify(
+    {
+      name: 'customer-site',
+      private: true,
+      version: '1.0.0',
+      scripts: {
+        build: 'node scripts/build.js',
       },
-      null,
-      2
-    );
+    },
+    null,
+    2,
+  );
+}
+
+export function generateBuildScript(): string {
+  return `const fs = require('fs');
+const path = require('path');
+
+const rootDir = process.cwd();
+const distDir = path.join(rootDir, 'dist');
+
+if (!fs.existsSync(distDir)) {
+  fs.mkdirSync(distDir, { recursive: true });
+}
+
+const sourceFiles = ['index.html'];
+
+for (const file of sourceFiles) {
+  const from = path.join(rootDir, file);
+  const to = path.join(distDir, file);
+
+  if (!fs.existsSync(from)) {
+    throw new Error(\`Missing source file: \${file}\`);
   }
-  
-  export function generateBuildScript() {
-    return `const fs = require('fs');
-  const path = require('path');
-  
-  const rootDir = process.cwd();
-  const distDir = path.join(rootDir, 'dist');
-  
-  if (!fs.existsSync(distDir)) {
-    fs.mkdirSync(distDir, { recursive: true });
-  }
-  
-  const sourceFiles = ['index.html'];
-  
-  for (const file of sourceFiles) {
-    const from = path.join(rootDir, file);
-    const to = path.join(distDir, file);
-  
-    if (!fs.existsSync(from)) {
-      throw new Error(\`Missing source file: \${file}\`);
-    }
-  
-    fs.copyFileSync(from, to);
-  }
-  
-  console.log('Build completed. Files copied to dist/.');
-  `;
-  }
+
+  fs.copyFileSync(from, to);
+}
+
+console.log('Build completed. Files copied to dist/.');
+`;
+}

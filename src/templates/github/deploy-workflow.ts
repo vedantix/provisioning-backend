@@ -1,7 +1,7 @@
 export function buildDeployWorkflow(): string {
     return `name: Deploy website
   
-  on:
+  "on":
     workflow_dispatch:
       inputs:
         bucket:
@@ -23,44 +23,81 @@ export function buildDeployWorkflow(): string {
           default: ""
           type: string
   
+  permissions:
+    contents: read
+    id-token: write
+  
+  env:
+    AWS_REGION: eu-west-1
+  
   jobs:
     deploy:
       runs-on: ubuntu-latest
   
-      permissions:
-        contents: read
-        id-token: write
-  
       steps:
-        - name: Checkout
+        - name: Checkout current ref
           uses: actions/checkout@v4
+          with:
+            fetch-depth: 0
   
-        - name: Configure AWS credentials
+        - name: Checkout rollback ref if requested
+          if: \${{ inputs.mode == 'rollback' && inputs.target_ref != '' }}
+          run: |
+            git fetch --all --tags --prune
+            git checkout "\${{ inputs.target_ref }}"
+  
+        - name: Setup Node
+          if: \${{ hashFiles('package.json') != '' }}
+          uses: actions/setup-node@v4
+          with:
+            node-version: 20
+  
+        - name: Install dependencies
+          if: \${{ hashFiles('package.json') != '' }}
+          run: |
+            if [ -f package-lock.json ]; then
+              npm ci
+            else
+              npm install
+            fi
+  
+        - name: Build project
+          run: |
+            if [ -f package.json ] && node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts.build ? 0 : 1)"; then
+              npm run build
+            else
+              mkdir -p dist
+              cp index.html dist/index.html
+            fi
+  
+        - name: Ensure dist exists
+          run: |
+            test -d dist || (echo "dist folder not found" && exit 1)
+            test -f dist/index.html || (echo "dist/index.html not found" && exit 1)
+  
+        - name: Configure AWS credentials with OIDC
+          if: \${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN != '' }}
+          uses: aws-actions/configure-aws-credentials@v4
+          with:
+            role-to-assume: \${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+            aws-region: \${{ env.AWS_REGION }}
+  
+        - name: Configure AWS credentials with access keys
+          if: \${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN == '' }}
           uses: aws-actions/configure-aws-credentials@v4
           with:
             aws-access-key-id: \${{ secrets.AWS_ACCESS_KEY_ID }}
             aws-secret-access-key: \${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            aws-region: eu-west-1
-  
-        - name: Use rollback ref if requested
-          if: \${{ inputs.mode == 'rollback' && inputs.target_ref != '' }}
-          run: |
-            git fetch --all --tags
-            git checkout "\${{ inputs.target_ref }}"
-  
-        - name: Prepare dist
-          run: |
-            mkdir -p dist
-            cp index.html dist/index.html
+            aws-region: \${{ env.AWS_REGION }}
   
         - name: Upload to S3
           run: |
-            aws s3 sync dist/ s3://\${{ inputs.bucket }}/ --delete
+            aws s3 sync dist/ "s3://\${{ inputs.bucket }}/" --delete
   
         - name: Invalidate CloudFront
           run: |
-            aws cloudfront create-invalidation \
-              --distribution-id "\${{ inputs.distribution_id }}" \
+            aws cloudfront create-invalidation \\
+              --distribution-id "\${{ inputs.distribution_id }}" \\
               --paths "/*"
   `;
   }
