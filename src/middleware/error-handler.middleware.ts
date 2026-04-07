@@ -8,6 +8,7 @@ export function errorHandlerMiddleware(
   _next: NextFunction,
 ) {
   const requestId = req.ctx?.requestId;
+  const isProd = process.env.NODE_ENV === 'production';
 
   if (error instanceof AppError) {
     console.error({
@@ -16,6 +17,7 @@ export function errorHandlerMiddleware(
       code: error.code,
       message: error.message,
       details: error.details,
+      stack: error.stack,
     });
 
     res.status(error.statusCode).json({
@@ -23,6 +25,7 @@ export function errorHandlerMiddleware(
         code: error.code,
         message: error.message,
         details: error.details ?? null,
+        stack: isProd ? undefined : error.stack,
       },
       requestId,
     });
@@ -30,18 +33,22 @@ export function errorHandlerMiddleware(
   }
 
   const message = error instanceof Error ? error.message : 'Internal server error';
+  const stack = error instanceof Error ? error.stack : undefined;
 
   console.error({
     level: 'error',
     requestId,
     code: 'INTERNAL_ERROR',
     message,
+    stack,
+    raw: error,
   });
 
   res.status(500).json({
     error: {
       code: 'INTERNAL_ERROR',
-      message: 'Internal server error',
+      message,
+      stack: isProd ? undefined : stack,
     },
     requestId,
   });

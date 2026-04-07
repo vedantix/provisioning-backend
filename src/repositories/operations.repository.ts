@@ -1,3 +1,6 @@
+// src/repositories/operations.repository.ts
+// VERVANG HELE FILE MET DEZE VERSIE
+
 import {
   DynamoDBClient,
 } from '@aws-sdk/client-dynamodb';
@@ -12,7 +15,11 @@ import type { OperationRecord } from '../domain/deployments/types';
 
 const client = new DynamoDBClient({});
 const ddb = DynamoDBDocumentClient.from(client);
-const TABLE_NAME = process.env.JOBS_TABLE || process.env.OPERATIONS_TABLE || 'vedantix-operations';
+
+// HARD FIX: niet meer leunen op JOBS_TABLE fallback
+const TABLE_NAME = process.env.OPERATIONS_TABLE || 'vedantix-operations';
+
+console.log('[OPERATIONS_REPOSITORY] TABLE_NAME=', TABLE_NAME);
 
 export class OperationsRepository {
   async getById(operationId: string): Promise<OperationRecord | null> {

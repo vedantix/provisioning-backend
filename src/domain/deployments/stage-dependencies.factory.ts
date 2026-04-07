@@ -3,9 +3,11 @@ import type {
   StageDependencies,
 } from './stage-dependencies';
 
+import { buildDeployWorkflow } from '../../templates/github/deploy-workflow';
+
 import {
   requestCertificate,
-  getCertificateValidationRecords,
+  waitForCertificateValidationRecords,
   waitForCertificateIssued,
 } from '../../services/aws/acm.service';
 
@@ -79,15 +81,63 @@ class StageDependenciesFactoryImpl implements StageDependencies {
   }) {
     const repoName =
       input.projectName?.trim() || this.slugify(input.domain);
-
-    const result = await provisionRepository(repoName, input.domain);
-
+  
+    const result = await provisionRepository(
+      repoName,
+      input.domain,
+      [
+        {
+          path: '.github/workflows/deploy.yml',
+          content: buildDeployWorkflow(),
+          message: 'Add deploy workflow',
+        },
+        {
+          path: '.gitignore',
+          content: `node_modules
+  dist
+  .env
+  `,
+          message: 'Add gitignore',
+        },
+        {
+          path: 'package.json',
+          content: JSON.stringify(
+            {
+              name: repoName,
+              private: true,
+              version: '1.0.0',
+              scripts: {
+                build: 'mkdir -p dist && cp -R . dist || true',
+              },
+            },
+            null,
+            2,
+          ),
+          message: 'Add package.json',
+        },
+        {
+          path: 'index.html',
+          content: `<!doctype html>
+  <html>
+    <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <title>${input.domain}</title>
+    </head>
+    <body>
+      <h1>${input.domain}</h1>
+      <p>Provisioned by Vedantix</p>
+    </body>
+  </html>`,
+          message: 'Add placeholder site',
+        },
+      ],
+    );
+  
     if (!result.success) {
-      throw new Error(
-        `[${result.stage}] ${result.error}`,
-      );
+      throw new Error(`[${result.stage}] ${result.error}`);
     }
-
+  
     return {
       repoName: result.repo,
     };
@@ -121,10 +171,12 @@ class StageDependenciesFactoryImpl implements StageDependencies {
     certificateArn: string;
     hostedZoneId: string;
   }) {
-    const records = await getCertificateValidationRecords(input.certificateArn);
-
+    const records = await waitForCertificateValidationRecords(
+      input.certificateArn,
+    );
+  
     const normalizedRecords: AcmValidationRecord[] = [];
-
+  
     for (const record of records) {
       await upsertDnsValidationRecord(
         input.hostedZoneId,
@@ -132,7 +184,7 @@ class StageDependenciesFactoryImpl implements StageDependencies {
         record.type,
         record.value,
       );
-
+  
       normalizedRecords.push({
         name: record.name,
         type: record.type,
@@ -140,7 +192,7 @@ class StageDependenciesFactoryImpl implements StageDependencies {
         fqdn: record.name,
       });
     }
-
+  
     return {
       validationRecords: normalizedRecords,
       validationRecordFqdns: normalizedRecords
@@ -149,8 +201,8 @@ class StageDependenciesFactoryImpl implements StageDependencies {
     };
   }
 
-  async acmDnsPropagation(input: { records: AcmValidationRecord[] }) {
-    await waitForDnsPropagation(input.records);
+  async acmDnsPropagation(_input: { records: AcmValidationRecord[] }) {
+    return;
   }
 
   async acmWait(input: { certificateArn: string }) {
@@ -259,3 +311,4 @@ class StageDependenciesFactoryImpl implements StageDependencies {
 export function createStageDependencies(): StageDependencies {
   return new StageDependenciesFactoryImpl();
 }
+

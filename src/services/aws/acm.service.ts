@@ -216,3 +216,29 @@ export async function deleteCertificateIfExists(params: {
     throw error;
   }
 }
+
+export async function waitForCertificateValidationRecords(
+  certificateArn: string,
+  maxAttempts = 20,
+  delayMs = 5000
+): Promise<CertificateValidationRecord[]> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const records = await getCertificateValidationRecords(certificateArn);
+
+    if (records.length > 0) {
+      return records;
+    }
+
+    console.log(
+      `[ACM] Waiting for validation records attempt ${attempt}/${maxAttempts} | arn=${certificateArn}`
+    );
+
+    if (attempt < maxAttempts) {
+      await sleep(delayMs);
+    }
+  }
+
+  throw new Error(
+    `Timed out waiting for ACM validation records for certificate ${certificateArn}`
+  );
+}

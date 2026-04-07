@@ -24,4 +24,5 @@ yarn-error.log*
 .idea/
 
 # Optional: coverage
-coverage/
+coverage/.env
+.env

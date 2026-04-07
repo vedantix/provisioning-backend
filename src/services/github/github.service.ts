@@ -86,7 +86,7 @@ function toSerializableError(error: unknown): unknown {
       response: maybe.response,
       request: maybe.request,
       documentation_url: maybe.documentation_url,
-      errors: maybe.errors
+      errors: maybe.errors,
     };
   }
 
@@ -95,7 +95,7 @@ function toSerializableError(error: unknown): unknown {
 
 async function getOwnerType(): Promise<'org' | 'user'> {
   const result = await octokit.users.getByUsername({
-    username: env.githubOwner
+    username: env.githubOwner,
   });
 
   return result.data.type === 'Organization' ? 'org' : 'user';
@@ -105,7 +105,7 @@ export async function repositoryExists(repo: string): Promise<boolean> {
   try {
     await octokit.repos.get({
       owner: env.githubOwner,
-      repo
+      repo,
     });
 
     return true;
@@ -121,7 +121,7 @@ export async function repositoryExists(repo: string): Promise<boolean> {
 export async function getRepository(repo: string) {
   const result = await octokit.repos.get({
     owner: env.githubOwner,
-    repo
+    repo,
   });
 
   return result.data;
@@ -142,7 +142,7 @@ export async function createRepository(repo: string): Promise<{
       created: false,
       repo: repository.name,
       url: repository.html_url,
-      defaultBranch: repository.default_branch
+      defaultBranch: repository.default_branch,
     };
   }
 
@@ -154,19 +154,19 @@ export async function createRepository(repo: string): Promise<{
           org: env.githubOwner,
           name: repo,
           private: true,
-          auto_init: true
+          auto_init: true,
         })
       : await octokit.repos.createForAuthenticatedUser({
           name: repo,
           private: true,
-          auto_init: true
+          auto_init: true,
         });
 
   return {
     created: true,
     repo: result.data.name,
     url: result.data.html_url,
-    defaultBranch: result.data.default_branch
+    defaultBranch: result.data.default_branch,
   };
 }
 
@@ -180,7 +180,7 @@ export async function getFileSha(params: {
       owner: env.githubOwner,
       repo: params.repo,
       path: params.path,
-      ref: defaultBranch(params.branch)
+      ref: defaultBranch(params.branch),
     });
 
     if (Array.isArray(result.data)) {
@@ -198,7 +198,7 @@ export async function getFileSha(params: {
 }
 
 export async function createOrUpdateFile(
-  params: CreateOrUpdateFileParams
+  params: CreateOrUpdateFileParams,
 ): Promise<{
   path: string;
   branch: string;
@@ -209,7 +209,7 @@ export async function createOrUpdateFile(
   const existingSha = await getFileSha({
     repo: params.repo,
     path: params.path,
-    branch
+    branch,
   });
 
   const result = await octokit.repos.createOrUpdateFileContents({
@@ -219,7 +219,7 @@ export async function createOrUpdateFile(
     message: params.message,
     content: Buffer.from(params.content, 'utf-8').toString('base64'),
     branch,
-    ...(existingSha ? { sha: existingSha } : {})
+    ...(existingSha ? { sha: existingSha } : {}),
   });
 
   return {
@@ -229,7 +229,7 @@ export async function createOrUpdateFile(
     sha:
       'content' in result.data && result.data.content
         ? result.data.content.sha
-        : undefined
+        : undefined,
   };
 }
 
@@ -259,7 +259,7 @@ export async function createManyFiles(params: {
       path: file.path,
       content: file.content,
       message: file.message,
-      branch: file.branch
+      branch: file.branch,
     });
 
     results.push(result);
@@ -268,28 +268,28 @@ export async function createManyFiles(params: {
   return {
     repo: params.repo,
     fileCount: results.length,
-    results
+    results,
   };
 }
 
 export async function getRepoWorkflows(repo: string): Promise<WorkflowSummary[]> {
   const result = await octokit.actions.listRepoWorkflows({
     owner: env.githubOwner,
-    repo
+    repo,
   });
 
   return result.data.workflows.map((workflow) => ({
     id: workflow.id,
     name: workflow.name,
     path: workflow.path,
-    state: workflow.state
+    state: workflow.state,
   }));
 }
 
 function workflowMatches(
   workflow: WorkflowSummary,
   expectedFileNames: string[],
-  expectedWorkflowNames: string[]
+  expectedWorkflowNames: string[],
 ): boolean {
   const workflowName = workflow.name.toLowerCase();
   const workflowPath = workflow.path.toLowerCase();
@@ -301,33 +301,33 @@ function workflowMatches(
 }
 
 export async function findWorkflow(
-  params: EnsureWorkflowParams
+  params: EnsureWorkflowParams,
 ): Promise<WorkflowSummary | null> {
   const expectedFileNames = params.expectedFileNames ?? [
     'deploy.yml',
     'deploy.yaml',
     'deploy-static-site.yml',
-    'deploy-static-site.yaml'
+    'deploy-static-site.yaml',
   ];
 
   const expectedWorkflowNames = params.expectedWorkflowNames ?? [
     'Deploy website',
     'Deploy Website',
-    'Deploy static site'
+    'Deploy static site',
   ];
 
   const workflows = await getRepoWorkflows(params.repo);
 
   const workflow =
     workflows.find((item) =>
-      workflowMatches(item, expectedFileNames, expectedWorkflowNames)
+      workflowMatches(item, expectedFileNames, expectedWorkflowNames),
     ) ?? null;
 
   return workflow;
 }
 
 export async function ensureWorkflowExists(
-  params: EnsureWorkflowParams
+  params: EnsureWorkflowParams,
 ): Promise<{
   exists: boolean;
   workflow?: WorkflowSummary;
@@ -336,13 +336,13 @@ export async function ensureWorkflowExists(
 
   if (!workflow) {
     return {
-      exists: false
+      exists: false,
     };
   }
 
   return {
     exists: true,
-    workflow
+    workflow,
   };
 }
 
@@ -355,14 +355,58 @@ async function dispatchWorkflow(params: {
   await octokit.actions.createWorkflowDispatch({
     owner: env.githubOwner,
     repo: params.repo,
-    workflow_id: params.workflowId,
+    workflow_id: 'deploy.yml',
     ref: defaultBranch(params.ref),
-    inputs: params.inputs ?? {}
+    inputs: params.inputs ?? {},
   });
 }
 
+export async function waitForWorkflowDispatchable(params: {
+  repo: string;
+  expectedFileName?: string;
+  expectedWorkflowNames?: string[];
+  maxAttempts?: number;
+  delayMs?: number;
+}): Promise<WorkflowSummary> {
+  const expectedFileName = (params.expectedFileName ?? 'deploy.yml').toLowerCase();
+  const expectedWorkflowNames = (params.expectedWorkflowNames ?? [
+    'Deploy website',
+    'Deploy Website',
+    'Deploy static site',
+  ]).map((name) => name.toLowerCase());
+  const maxAttempts = params.maxAttempts ?? 20;
+  const delayMs = params.delayMs ?? 3000;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const workflows = await getRepoWorkflows(params.repo);
+
+    const found =
+      workflows.find((workflow) => {
+        const workflowPath = workflow.path.toLowerCase();
+        const workflowName = workflow.name.toLowerCase();
+
+        return (
+          workflowPath.endsWith(expectedFileName) ||
+          expectedWorkflowNames.includes(workflowName)
+        );
+      }) ?? null;
+
+    if (found?.id) {
+      return found;
+    }
+
+    if (attempt < maxAttempts) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  throw new Error(
+    `Workflow ${expectedFileName} not registered in repo ${params.repo}`,
+  );
+}
+
 export async function dispatchDeploymentWorkflow(
-  params: DispatchDeploymentParams
+  params: DispatchDeploymentParams,
 ): Promise<GitHubResult> {
   const { repo, bucket, distributionId } = params;
 
@@ -373,21 +417,19 @@ export async function dispatchDeploymentWorkflow(
       return {
         success: false,
         stage: 'GITHUB_DISPATCH',
-        error: `Repository ${repo} does not exist`
+        error: `Repository ${repo} does not exist`,
       };
     }
 
-    const workflow = await findWorkflow({
-      repo
+    const workflow = await waitForWorkflowDispatchable({
+      repo,
+      expectedFileName: 'deploy.yml',
+      expectedWorkflowNames: ['Deploy website', 'Deploy Website', 'Deploy static site'],
+      maxAttempts: 20,
+      delayMs: 3000,
     });
 
-    if (!workflow) {
-      return {
-        success: false,
-        stage: 'GITHUB_DISPATCH',
-        error: `Deployment workflow not found in repo ${repo}`
-      };
-    }
+    await new Promise((resolve) => setTimeout(resolve, 8000));
 
     await dispatchWorkflow({
       repo,
@@ -396,68 +438,8 @@ export async function dispatchDeploymentWorkflow(
       inputs: {
         bucket,
         distribution_id: distributionId,
-        mode: 'deploy'
-      }
-    });
-
-    return {
-      success: true,
-      details: {
-        repo,
-        workflowId: workflow.id,
-        workflowName: workflow.name,
-        bucket,
-        distributionId
-      }
-    };
-  } catch (error) {
-    return {
-      success: false,
-      stage: 'GITHUB_DISPATCH',
-      error: toErrorMessage(error),
-      details: toSerializableError(error)
-    };
-  }
-}
-
-export async function dispatchRollbackWorkflow(
-  params: DispatchRollbackParams
-): Promise<GitHubResult> {
-  const { repo, bucket, distributionId, targetRef } = params;
-
-  try {
-    const exists = await repositoryExists(repo);
-
-    if (!exists) {
-      return {
-        success: false,
-        stage: 'GITHUB_DISPATCH',
-        error: `Repository ${repo} does not exist`
-      };
-    }
-
-    const workflow = await findWorkflow({
-      repo
-    });
-
-    if (!workflow) {
-      return {
-        success: false,
-        stage: 'GITHUB_DISPATCH',
-        error: `Rollback workflow target not found in repo ${repo}`
-      };
-    }
-
-    await dispatchWorkflow({
-      repo,
-      workflowId: workflow.id,
-      ref: params.ref,
-      inputs: {
-        bucket,
-        distribution_id: distributionId,
-        target_ref: targetRef,
-        mode: 'rollback'
-      }
+        mode: 'deploy',
+      },
     });
 
     return {
@@ -468,15 +450,71 @@ export async function dispatchRollbackWorkflow(
         workflowName: workflow.name,
         bucket,
         distributionId,
-        targetRef
-      }
+      },
     };
   } catch (error) {
     return {
       success: false,
       stage: 'GITHUB_DISPATCH',
       error: toErrorMessage(error),
-      details: toSerializableError(error)
+      details: toSerializableError(error),
+    };
+  }
+}
+
+export async function dispatchRollbackWorkflow(
+  params: DispatchRollbackParams,
+): Promise<GitHubResult> {
+  const { repo, bucket, distributionId, targetRef } = params;
+
+  try {
+    const exists = await repositoryExists(repo);
+
+    if (!exists) {
+      return {
+        success: false,
+        stage: 'GITHUB_DISPATCH',
+        error: `Repository ${repo} does not exist`,
+      };
+    }
+
+    const workflow = await waitForWorkflowDispatchable({
+      repo,
+      expectedFileName: 'deploy.yml',
+      expectedWorkflowNames: ['Deploy website', 'Deploy Website', 'Deploy static site'],
+      maxAttempts: 20,
+      delayMs: 3000,
+    });
+
+    await dispatchWorkflow({
+      repo,
+      workflowId: workflow.id,
+      ref: params.ref,
+      inputs: {
+        bucket,
+        distribution_id: distributionId,
+        target_ref: targetRef,
+        mode: 'rollback',
+      },
+    });
+
+    return {
+      success: true,
+      details: {
+        repo,
+        workflowId: workflow.id,
+        workflowName: workflow.name,
+        bucket,
+        distributionId,
+        targetRef,
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      stage: 'GITHUB_DISPATCH',
+      error: toErrorMessage(error),
+      details: toSerializableError(error),
     };
   }
 }

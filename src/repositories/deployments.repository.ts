@@ -1,3 +1,6 @@
+// src/repositories/deployments.repository.ts
+// VERVANG HELE FILE MET DEZE VERSIE
+
 import {
   DynamoDBClient,
 } from '@aws-sdk/client-dynamodb';
@@ -20,12 +23,14 @@ const client = new DynamoDBClient({});
 const ddb = DynamoDBDocumentClient.from(client);
 const TABLE_NAME = process.env.DEPLOYMENTS_TABLE || 'vedantix-deployments';
 
+type StoredDeploymentRecord = DeploymentRecord & { id: string };
+
 export class DeploymentsRepository {
   async getById(deploymentId: string): Promise<DeploymentRecord | null> {
     const result = await ddb.send(
       new GetCommand({
         TableName: TABLE_NAME,
-        Key: { deploymentId },
+        Key: { id: deploymentId },
       }),
     );
 
@@ -87,11 +92,16 @@ export class DeploymentsRepository {
   }
 
   async create(deployment: DeploymentRecord): Promise<void> {
+    const item: StoredDeploymentRecord = {
+      ...(deployment as StoredDeploymentRecord),
+      id: deployment.deploymentId,
+    };
+
     await ddb.send(
       new PutCommand({
         TableName: TABLE_NAME,
-        Item: deployment,
-        ConditionExpression: 'attribute_not_exists(deploymentId)',
+        Item: item,
+        ConditionExpression: 'attribute_not_exists(id)',
       }),
     );
   }
@@ -115,7 +125,7 @@ export class DeploymentsRepository {
     await ddb.send(
       new UpdateCommand({
         TableName: TABLE_NAME,
-        Key: { deploymentId },
+        Key: { id: deploymentId },
         UpdateExpression:
           'SET #status = :status, currentStage = :currentStage, updatedAt = :updatedAt, stageStates.#stageKey = :stageState ADD version :inc',
         ExpressionAttributeNames: {
@@ -152,7 +162,7 @@ export class DeploymentsRepository {
     await ddb.send(
       new UpdateCommand({
         TableName: TABLE_NAME,
-        Key: { deploymentId },
+        Key: { id: deploymentId },
         UpdateExpression:
           'SET #status = :status, currentStage = :currentStage, updatedAt = :updatedAt, stageStates.#stageKey = :stageState ADD version :inc',
         ExpressionAttributeNames: {
@@ -192,7 +202,7 @@ export class DeploymentsRepository {
     await ddb.send(
       new UpdateCommand({
         TableName: TABLE_NAME,
-        Key: { deploymentId },
+        Key: { id: deploymentId },
         UpdateExpression:
           'SET lastSuccessfulStage = :lastSuccessfulStage, updatedAt = :updatedAt, stageStates.#stageKey = :stageState ADD version :inc',
         ExpressionAttributeNames: {
@@ -237,7 +247,7 @@ export class DeploymentsRepository {
     await ddb.send(
       new UpdateCommand({
         TableName: TABLE_NAME,
-        Key: { deploymentId },
+        Key: { id: deploymentId },
         UpdateExpression:
           'SET #status = :status, failureStage = :failureStage, currentStage = :currentStage, failureCategory = :failureCategory, updatedAt = :updatedAt, stageStates.#stageKey = :stageState ADD version :inc',
         ExpressionAttributeNames: {
@@ -264,7 +274,7 @@ export class DeploymentsRepository {
     await ddb.send(
       new UpdateCommand({
         TableName: TABLE_NAME,
-        Key: { deploymentId },
+        Key: { id: deploymentId },
         UpdateExpression:
           'SET #status = :status, updatedAt = :updatedAt ADD version :inc',
         ExpressionAttributeNames: {
@@ -286,7 +296,7 @@ export class DeploymentsRepository {
     await ddb.send(
       new UpdateCommand({
         TableName: TABLE_NAME,
-        Key: { deploymentId },
+        Key: { id: deploymentId },
         UpdateExpression:
           'SET #status = :status, deletedAt = :deletedAt, updatedAt = :updatedAt ADD version :inc',
         ExpressionAttributeNames: {
@@ -310,7 +320,7 @@ export class DeploymentsRepository {
     await ddb.send(
       new UpdateCommand({
         TableName: TABLE_NAME,
-        Key: { deploymentId },
+        Key: { id: deploymentId },
         UpdateExpression:
           'SET managedResources = :managedResources, updatedAt = :updatedAt ADD version :inc',
         ExpressionAttributeValues: {

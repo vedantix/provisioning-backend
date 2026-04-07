@@ -88,10 +88,11 @@ export class IdempotencyService {
     deploymentId: string;
     requestHash: string;
     input: NormalizedCreateDeploymentInput;
-  }): DeploymentRecord {
+  }): DeploymentRecord & { id: string } {
     const now = new Date().toISOString();
-
+  
     return {
+      id: params.deploymentId,
       deploymentId: params.deploymentId,
       tenantId: params.input.tenantId,
       customerId: params.input.customerId,
