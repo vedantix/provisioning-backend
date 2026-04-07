@@ -5,20 +5,20 @@ export function buildDeployWorkflow(): string {
     workflow_dispatch:
       inputs:
         bucket:
-          description: S3 bucket
+          description: "S3 bucket"
           required: true
           type: string
         distribution_id:
-          description: CloudFront distribution id
+          description: "CloudFront distribution id"
           required: true
           type: string
         mode:
-          description: deploy or rollback
+          description: "deploy or rollback"
           required: false
-          default: deploy
+          default: "deploy"
           type: string
         target_ref:
-          description: rollback git ref
+          description: "rollback git ref"
           required: false
           default: ""
           type: string
