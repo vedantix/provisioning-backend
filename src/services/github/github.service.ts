@@ -119,6 +119,7 @@ export async function repositoryExists(repo: string): Promise<boolean> {
       owner: env.githubOwner,
       repo,
     });
+
     return true;
   } catch (error: any) {
     if (error?.status === 404) {
@@ -505,29 +506,43 @@ export async function waitForWorkflowDispatchable(params: {
 async function dispatchWorkflow(params: {
   repo: string;
   workflowIdentifier: number | string;
-  ref?: string;
+  ref: string;
   inputs?: Record<string, string>;
 }): Promise<void> {
-  await octokit.actions.createWorkflowDispatch({
-    owner: env.githubOwner,
-    repo: params.repo,
-    workflow_id: params.workflowIdentifier,
-    ref: defaultBranch(params.ref),
-    inputs: params.inputs ?? {},
-  });
+  try {
+    await octokit.actions.createWorkflowDispatch({
+      owner: env.githubOwner,
+      repo: params.repo,
+      workflow_id: params.workflowIdentifier,
+      ref: params.ref,
+      inputs: params.inputs ?? {},
+    });
+  } catch (error) {
+    console.error('GITHUB_DISPATCH_FAILED', {
+      repo: params.repo,
+      workflowIdentifier: params.workflowIdentifier,
+      ref: params.ref,
+      inputs: params.inputs,
+      error: toSerializableError(error),
+    });
+
+    throw error;
+  }
 }
 
 async function resolveDispatchableWorkflow(params: {
   repo: string;
   ref?: string;
-}): Promise<WorkflowSummary> {
-  const { defaultBranch: branch } = await waitForRepositoryReady({
+}): Promise<{ workflow: WorkflowSummary; dispatchRef: string }> {
+  const { defaultBranch: repoDefaultBranch } = await waitForRepositoryReady({
     repo: params.repo,
     maxAttempts: 20,
     delayMs: 1500,
   });
 
-  return waitForWorkflowDispatchable({
+  const dispatchRef = defaultBranch(params.ref ?? repoDefaultBranch);
+
+  const workflow = await waitForWorkflowDispatchable({
     repo: params.repo,
     expectedFileName: 'deploy.yml',
     expectedWorkflowNames: [
@@ -538,8 +553,10 @@ async function resolveDispatchableWorkflow(params: {
     workflowFilePath: '.github/workflows/deploy.yml',
     maxAttempts: 20,
     delayMs: 3000,
-    branch: params.ref ?? branch,
+    branch: dispatchRef,
   });
+
+  return { workflow, dispatchRef };
 }
 
 export async function dispatchDeploymentWorkflow(
@@ -558,7 +575,7 @@ export async function dispatchDeploymentWorkflow(
       };
     }
 
-    const workflow = await resolveDispatchableWorkflow({
+    const { workflow, dispatchRef } = await resolveDispatchableWorkflow({
       repo,
       ref: params.ref,
     });
@@ -566,7 +583,7 @@ export async function dispatchDeploymentWorkflow(
     await dispatchWorkflow({
       repo,
       workflowIdentifier: workflow.id,
-      ref: params.ref,
+      ref: dispatchRef,
       inputs: {
         bucket,
         distribution_id: distributionId,
@@ -582,6 +599,7 @@ export async function dispatchDeploymentWorkflow(
         workflowId: workflow.id,
         workflowName: workflow.name,
         workflowPath: workflow.path,
+        dispatchRef,
         bucket,
         distributionId,
       },
@@ -612,7 +630,7 @@ export async function dispatchRollbackWorkflow(
       };
     }
 
-    const workflow = await resolveDispatchableWorkflow({
+    const { workflow, dispatchRef } = await resolveDispatchableWorkflow({
       repo,
       ref: params.ref,
     });
@@ -620,7 +638,7 @@ export async function dispatchRollbackWorkflow(
     await dispatchWorkflow({
       repo,
       workflowIdentifier: workflow.id,
-      ref: params.ref,
+      ref: dispatchRef,
       inputs: {
         bucket,
         distribution_id: distributionId,
@@ -636,6 +654,7 @@ export async function dispatchRollbackWorkflow(
         workflowId: workflow.id,
         workflowName: workflow.name,
         workflowPath: workflow.path,
+        dispatchRef,
         bucket,
         distributionId,
         targetRef,
