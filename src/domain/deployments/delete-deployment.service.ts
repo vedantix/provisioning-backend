@@ -1,28 +1,38 @@
 import { getNextDeleteStage } from './delete-stages';
-import type { DeleteStage, DeploymentRecord, ManagedResources } from './types';
-import type { DeleteStageDependencies } from './delete-stage-dependencies';
-import { createDeleteStageDependencies } from './delete-stage-dependencies.factory';
+import type {
+  DeleteStage,
+  DeploymentRecord,
+  ManagedResources,
+} from './types';
 import { DeploymentsRepository } from '../../repositories/deployments.repository';
 import { OperationsRepository } from '../../repositories/operations.repository';
 import { DeploymentStateService } from './deployment-state.service';
 import { AuditService } from '../audit/audit.service';
+import { DeletePreflightService } from './delete-preflight.service';
+import {
+  DeleteStageExecutor,
+  type DeleteStageExecutionResult,
+} from './delete-stage-executor';
 
 export class DeleteDeploymentService {
   constructor(
     private readonly deploymentsRepository = new DeploymentsRepository(),
     private readonly operationsRepository = new OperationsRepository(),
     private readonly stateService = new DeploymentStateService(),
-    private readonly deps: DeleteStageDependencies = createDeleteStageDependencies(),
     private readonly auditService = new AuditService(),
+    private readonly preflightService = new DeletePreflightService(),
+    private readonly stageExecutor = new DeleteStageExecutor(),
   ) {}
 
   async runDelete(deploymentId: string, operationId: string): Promise<void> {
-    const deployment = await this.requireDeployment(deploymentId);
+    const initialDeployment = await this.requireDeployment(deploymentId);
+
+    this.preflightService.assertCanDelete(initialDeployment);
 
     const now = new Date().toISOString();
     await this.operationsRepository.markRunning(operationId, now);
 
-    let currentStage = this.getResumeStage(deployment);
+    let currentStage = this.getResumeStage(initialDeployment);
 
     while (currentStage) {
       const stage = currentStage;
@@ -37,15 +47,19 @@ export class DeleteDeploymentService {
           operationId,
           tenantId: currentDeployment.tenantId,
           customerId: currentDeployment.customerId,
-          actorId: currentDeployment.triggeredBy ?? currentDeployment.createdBy,
+          actorId:
+            currentDeployment.triggeredBy ?? currentDeployment.createdBy,
           eventType: 'STAGE_STARTED',
-          metadata: { stage, mode: 'delete' },
+          metadata: {
+            stage,
+            mode: 'delete',
+          },
         });
 
         const output = await this.executeStage(currentDeployment, stage);
 
-        if (output?.managedResources) {
-          const nextManagedResources = {
+        if (this.hasManagedResourcesPatch(output)) {
+          const nextManagedResources: ManagedResources = {
             ...currentDeployment.managedResources,
             ...output.managedResources,
           };
@@ -63,31 +77,41 @@ export class DeleteDeploymentService {
           operationId,
           tenantId: currentDeployment.tenantId,
           customerId: currentDeployment.customerId,
-          actorId: currentDeployment.triggeredBy ?? currentDeployment.createdBy,
+          actorId:
+            currentDeployment.triggeredBy ?? currentDeployment.createdBy,
           eventType: 'STAGE_SUCCEEDED',
-          metadata: { stage, mode: 'delete' },
+          metadata: {
+            stage,
+            mode: 'delete',
+            output,
+          },
         });
 
         currentStage = getNextDeleteStage(stage);
       } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : 'Unknown error';
+
+        const failedDeployment = await this.requireDeployment(deploymentId);
+
         await this.stateService.failStage(deploymentId, stage, {
           errorCode: 'DELETE_STAGE_FAILED',
-          errorMessage:
-            error instanceof Error ? error.message : 'Unknown error',
+          errorMessage,
           retryable: true,
         });
 
         await this.auditService.write({
-          deploymentId: deployment.deploymentId,
+          deploymentId: failedDeployment.deploymentId,
           operationId,
-          tenantId: deployment.tenantId,
-          customerId: deployment.customerId,
-          actorId: deployment.triggeredBy ?? deployment.createdBy,
+          tenantId: failedDeployment.tenantId,
+          customerId: failedDeployment.customerId,
+          actorId:
+            failedDeployment.triggeredBy ?? failedDeployment.createdBy,
           eventType: 'STAGE_FAILED',
           metadata: {
             stage,
             mode: 'delete',
-            error: error instanceof Error ? error.message : 'Unknown error',
+            error: errorMessage,
           },
         });
 
@@ -95,7 +119,7 @@ export class DeleteDeploymentService {
           operationId,
           new Date().toISOString(),
           'DELETE_STAGE_FAILED',
-          error instanceof Error ? error.message : 'Unknown error',
+          errorMessage,
         );
 
         return;
@@ -103,13 +127,16 @@ export class DeleteDeploymentService {
     }
 
     await this.stateService.markDeploymentDeleted(deploymentId);
+
     await this.operationsRepository.markSucceeded(
       operationId,
       new Date().toISOString(),
     );
   }
 
-  private getResumeStage(deployment: DeploymentRecord): DeleteStage | undefined {
+  private getResumeStage(
+    deployment: DeploymentRecord,
+  ): DeleteStage | undefined {
     const current = deployment.currentStage;
 
     if (
@@ -129,7 +156,9 @@ export class DeleteDeploymentService {
     return getNextDeleteStage();
   }
 
-  private async requireDeployment(deploymentId: string): Promise<DeploymentRecord> {
+  private async requireDeployment(
+    deploymentId: string,
+  ): Promise<DeploymentRecord> {
     const deployment = await this.deploymentsRepository.getById(deploymentId);
 
     if (!deployment) {
@@ -143,202 +172,34 @@ export class DeleteDeploymentService {
     deployment: DeploymentRecord,
     stage: DeleteStage,
   ): Promise<Record<string, unknown> | undefined> {
-    switch (stage) {
-      case 'DELETE_DOMAIN_ALIAS':
-        return this.handleDeleteDomainAlias(deployment);
-
-      case 'DISABLE_CLOUDFRONT':
-        return this.handleDisableCloudFront(deployment);
-
-      case 'WAIT_CLOUDFRONT_DISABLED':
-        return this.handleWaitCloudFrontDisabled(deployment);
-
-      case 'DELETE_CLOUDFRONT':
-        return this.handleDeleteCloudFront(deployment);
-
-      case 'EMPTY_S3_BUCKET':
-        return this.handleEmptyS3Bucket(deployment);
-
-      case 'DELETE_S3_BUCKET':
-        return this.handleDeleteS3Bucket(deployment);
-
-      case 'DELETE_ACM_VALIDATION_RECORDS':
-        return this.handleDeleteAcmValidationRecords(deployment);
-
-      case 'DELETE_ACM_CERTIFICATE':
-        return this.handleDeleteAcmCertificate(deployment);
-
-      case 'FINALIZE_DELETE':
-        return this.handleFinalizeDelete(deployment);
-
-      default:
-        throw new Error(`Unknown delete stage: ${stage}`);
-    }
+    const result = await this.stageExecutor.execute(stage, deployment);
+    return this.toStageOutput(result);
   }
 
-  private async handleDeleteDomainAlias(
-    deployment: DeploymentRecord,
-  ): Promise<Record<string, unknown>> {
-    if (!deployment.managedResources.hostedZoneId) {
-      return { skipped: true, reason: 'No hostedZoneId' };
-    }
-
-    const result = await this.deps.deleteDomainAlias({
-      domain: deployment.domain,
-      rootDomain: deployment.rootDomain,
-      hostedZoneId: deployment.managedResources.hostedZoneId,
-      aliasRecords: deployment.managedResources.route53AliasRecords,
-    });
-
+  private toStageOutput(
+    result: DeleteStageExecutionResult,
+  ): Record<string, unknown> {
     return {
-      removedRecords: result.removedRecords,
-      managedResources: {
-        route53AliasRecords: [],
-      } satisfies Partial<ManagedResources>,
+      stage: result.stage,
+      skippedBecauseMissing: result.skippedBecauseMissing ?? false,
+      ...(result.details ?? {}),
     };
   }
 
-  private async handleDisableCloudFront(
-    deployment: DeploymentRecord,
-  ): Promise<Record<string, unknown>> {
-    if (!deployment.managedResources.cloudFrontDistributionId) {
-      return { skipped: true, reason: 'No cloudFrontDistributionId' };
+  private hasManagedResourcesPatch(
+    value: Record<string, unknown> | undefined,
+  ): value is Record<string, unknown> & {
+    managedResources: Partial<ManagedResources>;
+  } {
+    if (!value || typeof value !== 'object') {
+      return false;
     }
 
-    const result = await this.deps.disableCloudFront({
-      distributionId: deployment.managedResources.cloudFrontDistributionId,
-    });
-
-    return {
-      distributionId: result.distributionId,
-      disabled: result.disabled,
-    };
-  }
-
-  private async handleWaitCloudFrontDisabled(
-    deployment: DeploymentRecord,
-  ): Promise<Record<string, unknown>> {
-    if (!deployment.managedResources.cloudFrontDistributionId) {
-      return { skipped: true, reason: 'No cloudFrontDistributionId' };
+    if (!('managedResources' in value)) {
+      return false;
     }
 
-    const result = await this.deps.waitCloudFrontDisabled({
-      distributionId: deployment.managedResources.cloudFrontDistributionId,
-    });
-
-    return {
-      distributionId: result.distributionId,
-      status: result.status,
-    };
-  }
-
-  private async handleDeleteCloudFront(
-    deployment: DeploymentRecord,
-  ): Promise<Record<string, unknown>> {
-    if (!deployment.managedResources.cloudFrontDistributionId) {
-      return { skipped: true, reason: 'No cloudFrontDistributionId' };
-    }
-
-    const result = await this.deps.deleteCloudFront({
-      distributionId: deployment.managedResources.cloudFrontDistributionId,
-    });
-
-    return {
-      distributionId: result.distributionId,
-      deleted: result.deleted,
-      managedResources: {
-        cloudFrontDistributionId: undefined,
-        cloudFrontDomainName: undefined,
-        cloudFrontDistributionArn: undefined,
-        oacId: undefined,
-      } satisfies Partial<ManagedResources>,
-    };
-  }
-
-  private async handleEmptyS3Bucket(
-    deployment: DeploymentRecord,
-  ): Promise<Record<string, unknown>> {
-    if (!deployment.managedResources.bucketName) {
-      return { skipped: true, reason: 'No bucketName' };
-    }
-
-    const result = await this.deps.emptyS3Bucket({
-      bucketName: deployment.managedResources.bucketName,
-    });
-
-    return {
-      bucketName: result.bucketName,
-      emptied: result.emptied,
-    };
-  }
-
-  private async handleDeleteS3Bucket(
-    deployment: DeploymentRecord,
-  ): Promise<Record<string, unknown>> {
-    if (!deployment.managedResources.bucketName) {
-      return { skipped: true, reason: 'No bucketName' };
-    }
-
-    const result = await this.deps.deleteS3Bucket({
-      bucketName: deployment.managedResources.bucketName,
-    });
-
-    return {
-      bucketName: result.bucketName,
-      deleted: result.deleted,
-      managedResources: {
-        bucketName: undefined,
-        bucketRegionalDomainName: undefined,
-      } satisfies Partial<ManagedResources>,
-    };
-  }
-
-  private async handleDeleteAcmValidationRecords(
-    deployment: DeploymentRecord,
-  ): Promise<Record<string, unknown>> {
-    if (!deployment.managedResources.hostedZoneId) {
-      return { skipped: true, reason: 'No hostedZoneId' };
-    }
-
-    const result = await this.deps.deleteAcmValidationRecords({
-      hostedZoneId: deployment.managedResources.hostedZoneId,
-      validationRecordFqdns: deployment.managedResources.validationRecordFqdns,
-    });
-
-    return {
-      removedValidationRecordFqdns: result.removedValidationRecordFqdns,
-      managedResources: {
-        validationRecordFqdns: [],
-      } satisfies Partial<ManagedResources>,
-    };
-  }
-
-  private async handleDeleteAcmCertificate(
-    deployment: DeploymentRecord,
-  ): Promise<Record<string, unknown>> {
-    if (!deployment.managedResources.certificateArn) {
-      return { skipped: true, reason: 'No certificateArn' };
-    }
-
-    const result = await this.deps.deleteAcmCertificate({
-      certificateArn: deployment.managedResources.certificateArn,
-    });
-
-    return {
-      certificateArn: result.certificateArn,
-      deleted: result.deleted,
-      managedResources: {
-        certificateArn: undefined,
-      } satisfies Partial<ManagedResources>,
-    };
-  }
-
-  private async handleFinalizeDelete(
-    deployment: DeploymentRecord,
-  ): Promise<Record<string, unknown>> {
-    return {
-      deploymentId: deployment.deploymentId,
-      finalizedAt: new Date().toISOString(),
-    };
+    const candidate = (value as { managedResources?: unknown }).managedResources;
+    return Boolean(candidate && typeof candidate === 'object');
   }
 }

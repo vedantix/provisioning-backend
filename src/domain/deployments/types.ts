@@ -11,6 +11,7 @@ export type DeploymentActionType =
   | 'RESUME'
   | 'RETRY_STAGE'
   | 'REDEPLOY'
+  | 'ROLLBACK'
   | 'DELETE'
   | 'ADD_DOMAIN';
 
@@ -84,6 +85,27 @@ export type ManagedResources = {
   route53AliasRecords?: string[];
   validationRecordFqdns?: string[];
   workflowRunId?: string;
+
+  resourceTags?: Record<string, string>;
+  ownershipToken?: string;
+  githubWorkflowFilePath?: string;
+  lastGitRefDeployed?: string;
+  rollbackRef?: string;
+
+  consistency?: {
+    ok: boolean;
+    checkedAt: string;
+    checks: Array<{
+      resource:
+        | 'S3_BUCKET'
+        | 'ACM_CERTIFICATE'
+        | 'CLOUDFRONT'
+        | 'ROUTE53_ALIAS';
+      ok: boolean;
+      reason?: string;
+      details?: Record<string, unknown>;
+    }>;
+  };
 };
 
 export type DomainBinding = {
@@ -101,35 +123,27 @@ export type DeploymentRecord = {
   deploymentId: string;
   tenantId: string;
   customerId: string;
-
   actionType: DeploymentActionType;
   status: DeploymentStatus;
-
   domain: string;
   rootDomain: string;
   packageCode: string;
   addOns: string[];
-
   currentStage?: AnyStage;
   lastSuccessfulStage?: AnyStage;
   failureStage?: AnyStage;
   failureCategory?: FailureCategory;
-
   idempotencyKey?: string;
   requestHash: string;
-
   stageStates: Record<string, StageExecutionState>;
   managedResources: ManagedResources;
   domainBindings: DomainBinding[];
-
   source: SourceType;
   createdBy?: string;
   triggeredBy?: string;
-
   createdAt: string;
   updatedAt: string;
   deletedAt?: string;
-
   version: number;
 };
 
@@ -145,22 +159,17 @@ export type OperationRecord = {
   deploymentId: string;
   tenantId: string;
   customerId: string;
-
   type: DeploymentActionType;
   status: OperationStatus;
-
   idempotencyKey?: string;
   requestHash: string;
-
   requestedStage?: AnyStage;
   source: SourceType;
   actorId?: string;
-
   createdAt: string;
   updatedAt: string;
   startedAt?: string;
   completedAt?: string;
-
   errorCode?: string;
   errorMessage?: string;
 };

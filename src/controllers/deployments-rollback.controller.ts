@@ -1,14 +1,14 @@
 import crypto from 'node:crypto';
 import type { Request, Response } from 'express';
 
-import { DeleteDeploymentService } from '../domain/deployments/delete-deployment.service';
-import { DeletePreflightService } from '../domain/deployments/delete-preflight.service';
+import { RollbackService } from '../domain/deployments/rollback.service';
 import { IdempotencyService } from '../domain/idempotency/idempotency.service';
 
 import { DeploymentsRepository } from '../repositories/deployments.repository';
 import { OperationsRepository } from '../repositories/operations.repository';
 
 import {
+  assertCanRollback,
   assertNoBlockingOperation,
   assertTenantAccess,
 } from '../domain/deployments/action-guards';
@@ -16,26 +16,29 @@ import {
 import { AuditService } from '../domain/audit/audit.service';
 import { NotFoundError } from '../errors/app-error';
 
-type DeleteParams = {
+type RollbackParams = {
   deploymentId: string;
+};
+
+type RollbackBody = {
+  targetRef?: string;
 };
 
 function createOperationId(): string {
   return crypto.randomUUID();
 }
 
-export class DeploymentsDeleteController {
+export class DeploymentsRollbackController {
   constructor(
-    private readonly deleteService = new DeleteDeploymentService(),
-    private readonly preflightService = new DeletePreflightService(),
+    private readonly rollbackService = new RollbackService(),
     private readonly idempotencyService = new IdempotencyService(),
     private readonly deploymentsRepository = new DeploymentsRepository(),
     private readonly operationsRepository = new OperationsRepository(),
     private readonly auditService = new AuditService(),
   ) {}
 
-  deleteDeployment = async (
-    req: Request<DeleteParams>,
+  rollbackDeployment = async (
+    req: Request<RollbackParams, unknown, RollbackBody>,
     res: Response,
   ): Promise<void> => {
     const deployment = await this.deploymentsRepository.getById(
@@ -47,16 +50,7 @@ export class DeploymentsDeleteController {
     }
 
     assertTenantAccess(deployment, req.ctx.tenantId);
-
-    const preflight = this.preflightService.runForDeployment(deployment);
-    if (!preflight.ok) {
-      res.status(409).json({
-        error: 'Delete preflight failed',
-        checks: preflight.checks,
-        requestId: req.ctx.requestId,
-      });
-      return;
-    }
+    assertCanRollback(deployment);
 
     const existingOperations =
       await this.operationsRepository.listByDeploymentId(
@@ -66,12 +60,13 @@ export class DeploymentsDeleteController {
     assertNoBlockingOperation(existingOperations);
 
     const requestHash = this.idempotencyService.createRequestHash({
-      type: 'DELETE',
+      type: 'ROLLBACK',
       tenantId: req.ctx.tenantId,
       customerId: deployment.customerId,
       deploymentId: deployment.deploymentId,
       body: {
-        action: 'DELETE_DEPLOYMENT',
+        action: 'ROLLBACK_DEPLOYMENT',
+        targetRef: req.body?.targetRef ?? null,
       },
       path: req.originalUrl,
       method: req.method,
@@ -80,7 +75,7 @@ export class DeploymentsDeleteController {
     const existing = await this.idempotencyService.resolveExistingOperation({
       idempotencyKey: req.ctx.idempotencyKey,
       deploymentId: deployment.deploymentId,
-      type: 'DELETE',
+      type: 'ROLLBACK',
       requestHash,
     });
 
@@ -103,7 +98,7 @@ export class DeploymentsDeleteController {
         deploymentId: deployment.deploymentId,
         tenantId: deployment.tenantId,
         customerId: deployment.customerId,
-        type: 'DELETE',
+        type: 'ROLLBACK',
         requestHash,
         idempotencyKey: req.ctx.idempotencyKey,
         source: req.ctx.source,
@@ -117,29 +112,21 @@ export class DeploymentsDeleteController {
       tenantId: deployment.tenantId,
       customerId: deployment.customerId,
       actorId: req.ctx.actorId,
-      eventType: 'DEPLOYMENT_DELETE_REQUESTED',
-      metadata: {
-        preflightChecks: preflight.checks,
-      },
-    });
-
-    await this.auditService.write({
-      deploymentId: deployment.deploymentId,
-      operationId,
-      tenantId: deployment.tenantId,
-      customerId: deployment.customerId,
-      actorId: req.ctx.actorId,
       eventType: 'OPERATION_ACCEPTED',
       metadata: {
-        type: 'DELETE',
+        type: 'ROLLBACK',
+        targetRef: req.body?.targetRef ?? null,
       },
     });
 
-    void this.deleteService
-      .runDelete(deployment.deploymentId, operationId)
+    void this.rollbackService
+      .rollback(deployment.deploymentId, operationId, {
+        targetRef: req.body?.targetRef,
+        actorId: req.ctx.actorId,
+      })
       .catch((error: unknown) => {
         console.error(
-          `[DELETE][${deployment.deploymentId}][${operationId}]`,
+          `[ROLLBACK][${deployment.deploymentId}][${operationId}]`,
           error,
         );
       });
@@ -148,7 +135,8 @@ export class DeploymentsDeleteController {
       data: {
         operationId,
         deploymentId: deployment.deploymentId,
-        status: 'DELETE_STARTED',
+        targetRef: req.body?.targetRef ?? null,
+        status: 'ROLLBACK_STARTED',
       },
       requestId: req.ctx.requestId,
     });
