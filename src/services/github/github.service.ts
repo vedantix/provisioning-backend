@@ -73,9 +73,11 @@ function toErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
   }
+
   if (typeof error === 'string') {
     return error;
   }
+
   return 'Unknown GitHub error';
 }
 
@@ -122,6 +124,7 @@ export async function repositoryExists(repo: string): Promise<boolean> {
     if (error?.status === 404) {
       return false;
     }
+
     throw error;
   }
 }
@@ -147,6 +150,7 @@ export async function createRepository(
 
   if (exists) {
     const repository = await getRepository(repo);
+
     return {
       created: false,
       repo: repository.name,
@@ -199,10 +203,11 @@ export async function waitForRepositoryReady(params: {
       });
 
       return { defaultBranch: branch };
-    } catch (error: any) {
+    } catch (error) {
       if (attempt === maxAttempts) {
         throw error;
       }
+
       await sleep(delayMs);
     }
   }
@@ -234,6 +239,7 @@ export async function getFileSha(params: {
     if (error?.status === 404) {
       return null;
     }
+
     throw error;
   }
 }
@@ -289,6 +295,7 @@ export async function createOrUpdateFile(
   sha?: string;
 }> {
   const branch = defaultBranch(params.branch);
+
   const existingSha = await getFileSha({
     repo: params.repo,
     path: params.path,
@@ -383,8 +390,12 @@ function workflowMatches(
   const workflowPath = workflow.path.toLowerCase();
 
   return (
-    expectedWorkflowNames.some((name) => workflowName === name.toLowerCase()) ||
-    expectedFileNames.some((file) => workflowPath.endsWith(file.toLowerCase()))
+    expectedWorkflowNames.some(
+      (name) => workflowName === name.toLowerCase(),
+    ) ||
+    expectedFileNames.some((file) =>
+      workflowPath.endsWith(file.toLowerCase()),
+    )
   );
 }
 
@@ -432,6 +443,7 @@ export async function waitForWorkflowDispatchable(params: {
   repo: string;
   expectedFileName?: string;
   expectedWorkflowNames?: string[];
+  workflowFilePath?: string;
   branch?: string;
   maxAttempts?: number;
   delayMs?: number;
@@ -444,34 +456,40 @@ export async function waitForWorkflowDispatchable(params: {
       'Deploy static site',
     ]
   ).map((name) => name.toLowerCase());
-
+  const workflowFilePath = params.workflowFilePath ?? '.github/workflows/deploy.yml';
   const maxAttempts = params.maxAttempts ?? 20;
   const delayMs = params.delayMs ?? 3000;
 
   await waitForFile({
     repo: params.repo,
-    path: '.github/workflows/deploy.yml',
+    path: workflowFilePath,
     branch: params.branch,
     maxAttempts,
     delayMs,
   });
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const workflows = await getRepoWorkflows(params.repo);
+    try {
+      const workflows = await getRepoWorkflows(params.repo);
 
-    const found =
-      workflows.find((workflow) => {
-        const workflowPath = workflow.path.toLowerCase();
-        const workflowName = workflow.name.toLowerCase();
+      const found =
+        workflows.find((workflow) => {
+          const workflowPath = workflow.path.toLowerCase();
+          const workflowName = workflow.name.toLowerCase();
 
-        return (
-          workflowPath.endsWith(expectedFileName) ||
-          expectedWorkflowNames.includes(workflowName)
-        );
-      }) ?? null;
+          return (
+            workflowPath.endsWith(expectedFileName) ||
+            expectedWorkflowNames.includes(workflowName)
+          );
+        }) ?? null;
 
-    if (found?.id) {
-      return found;
+      if (found?.id) {
+        return found;
+      }
+    } catch (error) {
+      if (attempt === maxAttempts) {
+        throw error;
+      }
     }
 
     if (attempt < maxAttempts) {
@@ -499,6 +517,31 @@ async function dispatchWorkflow(params: {
   });
 }
 
+async function resolveDispatchableWorkflow(params: {
+  repo: string;
+  ref?: string;
+}): Promise<WorkflowSummary> {
+  const { defaultBranch: branch } = await waitForRepositoryReady({
+    repo: params.repo,
+    maxAttempts: 20,
+    delayMs: 1500,
+  });
+
+  return waitForWorkflowDispatchable({
+    repo: params.repo,
+    expectedFileName: 'deploy.yml',
+    expectedWorkflowNames: [
+      'Deploy website',
+      'Deploy Website',
+      'Deploy static site',
+    ],
+    workflowFilePath: '.github/workflows/deploy.yml',
+    maxAttempts: 20,
+    delayMs: 3000,
+    branch: params.ref ?? branch,
+  });
+}
+
 export async function dispatchDeploymentWorkflow(
   params: DispatchDeploymentParams,
 ): Promise<GitHubResult> {
@@ -515,17 +558,9 @@ export async function dispatchDeploymentWorkflow(
       };
     }
 
-    const workflow = await waitForWorkflowDispatchable({
+    const workflow = await resolveDispatchableWorkflow({
       repo,
-      expectedFileName: 'deploy.yml',
-      expectedWorkflowNames: [
-        'Deploy website',
-        'Deploy Website',
-        'Deploy static site',
-      ],
-      maxAttempts: 20,
-      delayMs: 3000,
-      branch: params.ref,
+      ref: params.ref,
     });
 
     await dispatchWorkflow({
@@ -577,17 +612,9 @@ export async function dispatchRollbackWorkflow(
       };
     }
 
-    const workflow = await waitForWorkflowDispatchable({
+    const workflow = await resolveDispatchableWorkflow({
       repo,
-      expectedFileName: 'deploy.yml',
-      expectedWorkflowNames: [
-        'Deploy website',
-        'Deploy Website',
-        'Deploy static site',
-      ],
-      maxAttempts: 20,
-      delayMs: 3000,
-      branch: params.ref,
+      ref: params.ref,
     });
 
     await dispatchWorkflow({

@@ -38,10 +38,36 @@ function toErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
   }
+
   if (typeof error === 'string') {
     return error;
   }
+
   return 'Unknown GitHub provisioning error';
+}
+
+function toSerializableError(error: unknown): unknown {
+  if (typeof error === 'object' && error !== null) {
+    const maybe = error as {
+      message?: string;
+      status?: number;
+      response?: { data?: unknown };
+      request?: unknown;
+      documentation_url?: string;
+      errors?: unknown;
+    };
+
+    return {
+      message: maybe.message,
+      status: maybe.status,
+      response: maybe.response?.data ?? maybe.response,
+      request: maybe.request,
+      documentation_url: maybe.documentation_url,
+      errors: maybe.errors,
+    };
+  }
+
+  return error;
 }
 
 function sanitizeRepoName(input: string): string {
@@ -70,6 +96,7 @@ export async function provisionRepository(
 
   try {
     const createResult = await createRepository(normalizedRepo);
+
     const ready = await waitForRepositoryReady({
       repo: normalizedRepo,
       maxAttempts: 20,
@@ -102,6 +129,7 @@ export async function provisionRepository(
           details: {
             repo: normalizedRepo,
             domain,
+            error: toSerializableError(error),
           },
         };
       }
@@ -140,6 +168,7 @@ export async function provisionRepository(
           details: {
             repo: normalizedRepo,
             domain,
+            error: toSerializableError(error),
           },
         };
       }
@@ -165,6 +194,7 @@ export async function provisionRepository(
       details: {
         repo: normalizedRepo,
         domain,
+        error: toSerializableError(error),
       },
     };
   }
@@ -183,11 +213,13 @@ export async function ensureRepositoryForProject(params: {
 
   if (!exists) {
     const createResult = await createRepository(repo);
+
     await waitForRepositoryReady({
       repo: createResult.repo,
       maxAttempts: 20,
       delayMs: 1500,
     });
+
     return createResult.repo;
   }
 
@@ -245,10 +277,17 @@ export async function ensureWorkflowExists(params: {
     return;
   }
 
+  const ready = await waitForRepositoryReady({
+    repo: params.repositoryName,
+    maxAttempts: 20,
+    delayMs: 1500,
+  });
+
   await waitForWorkflowDispatchable({
     repo: params.repositoryName,
     expectedFileName: workflowFileName,
     expectedWorkflowNames: ['Deploy website', 'Deploy Website'],
+    branch: ready.defaultBranch,
     maxAttempts: 20,
     delayMs: 3000,
   });
