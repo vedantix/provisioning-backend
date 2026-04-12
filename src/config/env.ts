@@ -54,6 +54,7 @@ export const env = {
   customersTable: required('CUSTOMERS_TABLE'),
   deploymentsTable: required('DEPLOYMENTS_TABLE'),
   jobsTable: required('JOBS_TABLE'),
+  financeTable: optional('FINANCE_TABLE', 'vedantix-finance')!,
 
   allowedRootDomain: optional('ALLOWED_ROOT_DOMAIN', 'vedantix.nl')!,
   structuredLogging: booleanFromEnv('STRUCTURED_LOGGING', true),
