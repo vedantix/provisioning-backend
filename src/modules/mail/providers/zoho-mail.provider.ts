@@ -120,25 +120,34 @@ export class ZohoMailProvider implements MailProvider {
   }): Promise<ProviderMailboxResult> {
     const client = await this.client();
     const email = normalizeEmail(input.localPart, input.domain);
-
-    const response = await client.post(
-      `/organization/${mailConfig.zoho.organizationId}/accounts`,
-      {
-        primaryEmailAddress: email,
-        displayName: input.displayName,
-        password: input.password,
-        lastName: input.displayName,
-      },
-    );
-
-    const data = response.data?.data || response.data || {};
-
-    return {
-      providerUserId: data.userId || data.id || data.user_id || undefined,
-      providerAccountId: data.accountId || data.account_id || undefined,
-      email,
-      status: data.status || 'ACTIVE',
-    };
+  
+    try {
+      const response = await client.post(
+        `/organization/${mailConfig.zoho.organizationId}/accounts`,
+        {
+          primaryEmailAddress: email,
+          displayName: input.displayName,
+          password: input.password,
+          lastName: input.displayName,
+        },
+      );
+  
+      const data = response.data?.data || response.data || {};
+  
+      return {
+        providerUserId: data.userId || data.id || data.user_id || undefined,
+        providerAccountId: data.accountId || data.account_id || undefined,
+        email,
+        status: data.status || 'ACTIVE',
+      };
+    } catch (error: any) {
+      const status = error?.response?.status;
+      const data = error?.response?.data;
+  
+      throw new Error(
+        `[ZOHO_MAIL_PROVIDER] createMailbox failed. Status=${status ?? 'unknown'} Response=${JSON.stringify(data) || error.message}`
+      );
+    }
   }
 
   async disableMailbox(input: { email: string }): Promise<void> {

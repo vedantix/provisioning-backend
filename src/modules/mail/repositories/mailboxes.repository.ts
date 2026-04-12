@@ -1,9 +1,9 @@
 import { randomUUID } from 'crypto';
 import type { MailboxRecord } from '../types/mail.types';
 
-export class MailboxesRepository {
-  private readonly items = new Map<string, MailboxRecord>();
+const mailboxesStore = new Map<string, MailboxRecord>();
 
+export class MailboxesRepository {
   async create(
     input: Omit<MailboxRecord, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<MailboxRecord> {
@@ -16,12 +16,12 @@ export class MailboxesRepository {
       ...input,
     };
 
-    this.items.set(record.id, record);
+    mailboxesStore.set(record.id, record);
     return record;
   }
 
   async update(mailboxId: string, patch: Partial<MailboxRecord>): Promise<MailboxRecord> {
-    const current = this.items.get(mailboxId);
+    const current = mailboxesStore.get(mailboxId);
     if (!current) {
       throw new Error(`[MAILBOXES_REPOSITORY] Mailbox not found: ${mailboxId}`);
     }
@@ -33,18 +33,18 @@ export class MailboxesRepository {
       updatedAt: new Date().toISOString(),
     };
 
-    this.items.set(mailboxId, updated);
+    mailboxesStore.set(mailboxId, updated);
     return updated;
   }
 
   async findById(mailboxId: string): Promise<MailboxRecord | null> {
-    return this.items.get(mailboxId) || null;
+    return mailboxesStore.get(mailboxId) || null;
   }
 
   async findByEmail(primaryEmail: string): Promise<MailboxRecord | null> {
     const normalized = primaryEmail.trim().toLowerCase();
 
-    for (const item of this.items.values()) {
+    for (const item of mailboxesStore.values()) {
       if (item.primaryEmail === normalized) {
         return item;
       }
@@ -54,13 +54,13 @@ export class MailboxesRepository {
   }
 
   async listByMailDomainId(mailDomainId: string): Promise<MailboxRecord[]> {
-    return Array.from(this.items.values()).filter(
+    return Array.from(mailboxesStore.values()).filter(
       (item) => item.mailDomainId === mailDomainId,
     );
   }
 
   async listByCustomerId(customerId: string): Promise<MailboxRecord[]> {
-    return Array.from(this.items.values()).filter(
+    return Array.from(mailboxesStore.values()).filter(
       (item) => item.customerId === customerId,
     );
   }

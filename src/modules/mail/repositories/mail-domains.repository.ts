@@ -1,13 +1,14 @@
 import { randomUUID } from 'crypto';
 import type { MailDomainRecord } from '../types/mail.types';
 
-export class MailDomainsRepository {
-  private readonly items = new Map<string, MailDomainRecord>();
+const mailDomainsStore = new Map<string, MailDomainRecord>();
 
+export class MailDomainsRepository {
   async create(
     input: Omit<MailDomainRecord, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<MailDomainRecord> {
     const now = new Date().toISOString();
+
     const record: MailDomainRecord = {
       id: randomUUID(),
       createdAt: now,
@@ -15,7 +16,7 @@ export class MailDomainsRepository {
       ...input,
     };
 
-    this.items.set(record.id, record);
+    mailDomainsStore.set(record.id, record);
     return record;
   }
 
@@ -23,7 +24,7 @@ export class MailDomainsRepository {
     mailDomainId: string,
     patch: Partial<MailDomainRecord>,
   ): Promise<MailDomainRecord> {
-    const current = this.items.get(mailDomainId);
+    const current = mailDomainsStore.get(mailDomainId);
     if (!current) {
       throw new Error(`[MAIL_DOMAINS_REPOSITORY] Mail domain not found: ${mailDomainId}`);
     }
@@ -35,18 +36,18 @@ export class MailDomainsRepository {
       updatedAt: new Date().toISOString(),
     };
 
-    this.items.set(mailDomainId, updated);
+    mailDomainsStore.set(mailDomainId, updated);
     return updated;
   }
 
   async findById(mailDomainId: string): Promise<MailDomainRecord | null> {
-    return this.items.get(mailDomainId) || null;
+    return mailDomainsStore.get(mailDomainId) || null;
   }
 
   async findByDomain(domain: string): Promise<MailDomainRecord | null> {
     const normalized = domain.trim().toLowerCase();
 
-    for (const item of this.items.values()) {
+    for (const item of mailDomainsStore.values()) {
       if (item.domain === normalized) {
         return item;
       }
@@ -56,6 +57,6 @@ export class MailDomainsRepository {
   }
 
   async list(): Promise<MailDomainRecord[]> {
-    return Array.from(this.items.values());
+    return Array.from(mailDomainsStore.values());
   }
 }
