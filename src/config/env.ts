@@ -34,8 +34,10 @@ function numberFromEnv(name: string, fallback: number): number {
   return parsed;
 }
 
+const nodeEnv = optional('NODE_ENV', 'development')!;
+
 export const env = {
-  nodeEnv: optional('NODE_ENV', 'development')!,
+  nodeEnv,
   port: numberFromEnv('PORT', 3000),
 
   awsRegion: required('AWS_REGION'),
@@ -75,12 +77,42 @@ export const env = {
   alertsEnabled: booleanFromEnv('ALERTS_ENABLED', false),
   alertTopicArn: optional('ALERT_TOPIC_ARN'),
 
-  isProduction:
-    (optional('NODE_ENV', 'development') || 'development') === 'production',
+  mailProvider: optional('MAIL_PROVIDER', 'ZOHO')!,
+  zohoApiBaseUrl: optional('ZOHO_API_BASE_URL', 'https://mail.zoho.com/api')!,
+  zohoAccountsBaseUrl: optional(
+    'ZOHO_ACCOUNTS_BASE_URL',
+    'https://accounts.zoho.com',
+  )!,
+  zohoClientId: optional('ZOHO_CLIENT_ID'),
+  zohoClientSecret: optional('ZOHO_CLIENT_SECRET'),
+  zohoRefreshToken: optional('ZOHO_REFRESH_TOKEN'),
+  zohoOrganizationId: optional('ZOHO_ORGANIZATION_ID'),
+  zohoTokenTimeoutMs: numberFromEnv('ZOHO_TOKEN_TIMEOUT_MS', 15_000),
+  zohoRequestTimeoutMs: numberFromEnv('ZOHO_REQUEST_TIMEOUT_MS', 20_000),
+
+  isProduction: nodeEnv === 'production',
 } as const;
 
 if (!env.githubToken && !env.githubTokenSecretArn) {
   throw new Error(
     'Missing GitHub credential configuration: set GITHUB_TOKEN or GITHUB_TOKEN_SECRET_ARN',
   );
+}
+
+if (env.mailProvider === 'ZOHO') {
+  if (!env.zohoClientId) {
+    throw new Error('Missing required env var for Zoho mail: ZOHO_CLIENT_ID');
+  }
+
+  if (!env.zohoClientSecret) {
+    throw new Error('Missing required env var for Zoho mail: ZOHO_CLIENT_SECRET');
+  }
+
+  if (!env.zohoRefreshToken) {
+    throw new Error('Missing required env var for Zoho mail: ZOHO_REFRESH_TOKEN');
+  }
+
+  if (!env.zohoOrganizationId) {
+    throw new Error('Missing required env var for Zoho mail: ZOHO_ORGANIZATION_ID');
+  }
 }
