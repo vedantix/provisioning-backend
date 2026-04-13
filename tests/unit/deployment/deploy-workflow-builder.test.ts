@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
 
 beforeAll(() => {
@@ -13,29 +16,50 @@ beforeAll(() => {
     process.env.CLOUDFRONT_PRICE_CLASS || "PriceClass_100";
 });
 
-async function importBuilderModule() {
-  const candidates = [
-    "../../../src/services/deployment/deploy-workflow-builder",
-    "../../../src/services/deployment/deploy-workflow-builder.service",
-    "../../../src/services/github/deploy-workflow-builder",
-    "../../../src/services/github/deploy-workflow-builder.service",
-    "../../../src/services/github/workflow-builder",
-    "../../../src/services/github/workflow-builder.service",
-    "../../../src/services/github/workflow/deploy-workflow-builder",
-    "../../../src/services/github/workflow/deploy-workflow-builder.service",
-  ];
+function findFileRecursive(dir: string, matcher: (file: string) => boolean): string | null {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
 
-  for (const path of candidates) {
-    try {
-      return await import(path);
-    } catch {
-      // try next
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+
+    if (entry.isDirectory()) {
+      const nested = findFileRecursive(fullPath, matcher);
+      if (nested) {
+        return nested;
+      }
+      continue;
+    }
+
+    if (entry.isFile() && matcher(entry.name)) {
+      return fullPath;
     }
   }
 
-  throw new Error(
-    `Could not find deploy workflow builder module. Checked: ${candidates.join(", ")}`
-  );
+  return null;
+}
+
+async function importBuilderModule() {
+  const srcRoot = path.resolve(process.cwd(), "src");
+
+  const filePath =
+    findFileRecursive(
+      srcRoot,
+      (name) =>
+        /deploy.*workflow.*builder/i.test(name) &&
+        (name.endsWith(".ts") || name.endsWith(".js"))
+    ) ||
+    findFileRecursive(
+      srcRoot,
+      (name) =>
+        /workflow.*builder/i.test(name) &&
+        (name.endsWith(".ts") || name.endsWith(".js"))
+    );
+
+  if (!filePath) {
+    throw new Error("Could not find deploy workflow builder file anywhere under src/");
+  }
+
+  return import(pathToFileURL(filePath).href);
 }
 
 function pickBuilder(mod: Record<string, unknown>) {
