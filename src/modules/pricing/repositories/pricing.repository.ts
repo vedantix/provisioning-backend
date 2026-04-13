@@ -17,8 +17,8 @@ function normalizeTenantId(tenantId?: string): string {
   return String(tenantId || "default").trim() || "default";
 }
 
-function pricingPk(tenantId?: string): string {
-  return `TENANT#${normalizeTenantId(tenantId)}#PRICING`;
+function tenantPricingPk(tenantId?: string): string {
+  return `PRICING#${normalizeTenantId(tenantId)}`;
 }
 
 function legacyPricingPk(): string {
@@ -43,14 +43,12 @@ export class PricingRepository {
   }
 
   async listPackages(tenantId?: string): Promise<PricingPackageRecord[]> {
-    const tenantPk = pricingPk(tenantId);
-
     const result = await ddb.send(
       new QueryCommand({
         TableName: TABLE_NAME,
         KeyConditionExpression: "pk = :pk AND begins_with(sk, :skPrefix)",
         ExpressionAttributeValues: {
-          ":pk": tenantPk,
+          ":pk": tenantPricingPk(tenantId),
           ":skPrefix": "PACKAGE#",
         },
       })
@@ -81,14 +79,12 @@ export class PricingRepository {
   }
 
   async listAddons(tenantId?: string): Promise<PricingAddonRecord[]> {
-    const tenantPk = pricingPk(tenantId);
-
     const result = await ddb.send(
       new QueryCommand({
         TableName: TABLE_NAME,
         KeyConditionExpression: "pk = :pk AND begins_with(sk, :skPrefix)",
         ExpressionAttributeValues: {
-          ":pk": tenantPk,
+          ":pk": tenantPricingPk(tenantId),
           ":skPrefix": "ADDON#",
         },
       })
@@ -119,18 +115,18 @@ export class PricingRepository {
   }
 
   async getPackage(code: string, tenantId?: string): Promise<PricingPackageRecord | null> {
-    const tenantResult = await ddb.send(
+    const result = await ddb.send(
       new GetCommand({
         TableName: TABLE_NAME,
         Key: {
-          pk: pricingPk(tenantId),
+          pk: tenantPricingPk(tenantId),
           sk: `PACKAGE#${code}`,
         },
       })
     );
 
-    if (tenantResult.Item) {
-      return tenantResult.Item as PricingPackageRecord;
+    if (result.Item) {
+      return result.Item as PricingPackageRecord;
     }
 
     const legacyResult = await ddb.send(
@@ -147,18 +143,18 @@ export class PricingRepository {
   }
 
   async getAddon(code: string, tenantId?: string): Promise<PricingAddonRecord | null> {
-    const tenantResult = await ddb.send(
+    const result = await ddb.send(
       new GetCommand({
         TableName: TABLE_NAME,
         Key: {
-          pk: pricingPk(tenantId),
+          pk: tenantPricingPk(tenantId),
           sk: `ADDON#${code}`,
         },
       })
     );
 
-    if (tenantResult.Item) {
-      return tenantResult.Item as PricingAddonRecord;
+    if (result.Item) {
+      return result.Item as PricingAddonRecord;
     }
 
     const legacyResult = await ddb.send(
@@ -180,7 +176,7 @@ export class PricingRepository {
         TableName: TABLE_NAME,
         Item: {
           ...item,
-          pk: pricingPk(tenantId),
+          pk: tenantPricingPk(tenantId),
           sk: `PACKAGE#${item.code}`,
           tenantId: normalizeTenantId(tenantId),
           entityType: "PRICING_PACKAGE",
@@ -195,7 +191,7 @@ export class PricingRepository {
         TableName: TABLE_NAME,
         Item: {
           ...item,
-          pk: pricingPk(tenantId),
+          pk: tenantPricingPk(tenantId),
           sk: `ADDON#${item.code}`,
           tenantId: normalizeTenantId(tenantId),
           entityType: "PRICING_ADDON",
