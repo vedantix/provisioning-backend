@@ -23,18 +23,19 @@ function fromExclusive(amountExclVat: number, vatRate: number) {
 export class PricingService {
   constructor(private readonly pricingRepository = new PricingRepository()) {}
 
-  async getSummary(): Promise<PricingSummary> {
-    await this.pricingRepository.ensureSeeded();
+  async getSummary(tenantId?: string): Promise<PricingSummary> {
+    await this.pricingRepository.ensureSeeded(tenantId);
 
     const [packages, addons] = await Promise.all([
-      this.pricingRepository.listPackages(),
-      this.pricingRepository.listAddons(),
+      this.pricingRepository.listPackages(tenantId),
+      this.pricingRepository.listAddons(tenantId),
     ]);
 
     return { packages, addons };
   }
 
   async updatePackage(
+    tenantId: string | undefined,
     code: string,
     input: Partial<PricingPackageRecord> & {
       monthlyPriceInclVat?: number;
@@ -43,9 +44,9 @@ export class PricingService {
       vatRate?: number;
     }
   ): Promise<PricingPackageRecord> {
-    await this.pricingRepository.ensureSeeded();
+    await this.pricingRepository.ensureSeeded(tenantId);
 
-    const existing = await this.pricingRepository.getPackage(code);
+    const existing = await this.pricingRepository.getPackage(code, tenantId);
     if (!existing) {
       throw new Error(`Pricing package not found: ${code}`);
     }
@@ -82,11 +83,12 @@ export class PricingService {
       updatedAt: new Date().toISOString(),
     };
 
-    await this.pricingRepository.upsertPackage(next);
+    await this.pricingRepository.upsertPackage(next, tenantId);
     return next;
   }
 
   async updateAddon(
+    tenantId: string | undefined,
     code: string,
     input: Partial<PricingAddonRecord> & {
       monthlyPriceInclVat?: number;
@@ -95,9 +97,9 @@ export class PricingService {
       vatRate?: number;
     }
   ): Promise<PricingAddonRecord> {
-    await this.pricingRepository.ensureSeeded();
+    await this.pricingRepository.ensureSeeded(tenantId);
 
-    const existing = await this.pricingRepository.getAddon(code);
+    const existing = await this.pricingRepository.getAddon(code, tenantId);
     if (!existing) {
       throw new Error(`Pricing addon not found: ${code}`);
     }
@@ -134,7 +136,7 @@ export class PricingService {
       updatedAt: new Date().toISOString(),
     };
 
-    await this.pricingRepository.upsertAddon(next);
+    await this.pricingRepository.upsertAddon(next, tenantId);
     return next;
   }
 
