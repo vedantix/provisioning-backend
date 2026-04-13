@@ -18,6 +18,7 @@ import adminOpsRoutes from './routes/admin-ops.routes';
 import mailRoutes from './modules/mail/routes/mail.routes';
 import customerMailRoutes from './modules/mail/routes/customer-mail.routes';
 import financeRoutes from './modules/finance/routes/finance.routes';
+import pricingRoutes from "./modules/pricing/routes/pricing.routes";
 import { createRateLimitMiddleware } from './middleware/rate-limit.middleware';
 import { notFoundMiddleware } from './middleware/not-found.middleware';
 import { requestContextMiddleware } from './middleware/request-context.middleware';
@@ -59,6 +60,7 @@ app.use('/api', mailboxRoutes);
 app.use('/api', deleteRoutes);
 app.use('/api', redeployRoutes);
 app.use('/api', rollbackRoutes);
+app.use("/api", pricingRoutes);
 
 app.use('/api/mail', mailRoutes);
 app.use('/api/customers', customerMailRoutes);

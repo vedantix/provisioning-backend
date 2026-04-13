@@ -75,6 +75,8 @@ export const env = {
   healthcheckRequireApiKey: booleanFromEnv('HEALTHCHECK_REQUIRE_API_KEY', false),
   cleanupCandidateMinAgeHours: numberFromEnv('CLEANUP_CANDIDATE_MIN_AGE_HOURS', 24),
 
+  pricingTable: optional("PRICING_TABLE", "vedantix-pricing")!,
+
   alertsEnabled: booleanFromEnv('ALERTS_ENABLED', false),
   alertTopicArn: optional('ALERT_TOPIC_ARN'),
 
