@@ -1,27 +1,30 @@
-import type { Request, Response, NextFunction } from "express";
+import type { NextFunction, Request, Response } from 'express';
+import { BadRequestError, UnauthorizedError } from '../errors/app-error';
 
 export function requireActorContextMiddleware(
   req: Request,
-  res: Response,
-  next: NextFunction
+  _res: Response,
+  next: NextFunction,
 ) {
-  if (req.method === "OPTIONS") {
-    return next();
+  if (!req.ctx) {
+    next(new UnauthorizedError('Missing request context'));
+    return;
   }
 
-  const source = String((req as any).ctx?.source || req.header("X-Source") || "").trim();
-  const actorId = String((req as any).ctx?.actorId || req.header("X-Actor-Id") || "").trim();
-
-  if (source === "SYSTEM") {
-    return next();
+  if (!req.ctx.requestId) {
+    next(new BadRequestError('Missing requestId in request context'));
+    return;
   }
 
-  if (!actorId) {
-    return res.status(401).json({
-      error: "Missing actor context",
-      message: "X-Actor-Id is required",
-    });
+  if (!req.ctx.tenantId) {
+    next(new BadRequestError('Missing X-Tenant-Id header'));
+    return;
   }
 
-  return next();
+  if (!req.ctx.actorId) {
+    next(new BadRequestError('Missing X-Actor-Id header'));
+    return;
+  }
+
+  next();
 }

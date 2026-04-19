@@ -60,7 +60,10 @@ app.use(
   })
 );
 
-app.options("*", (_req, res) => {
+/**
+ * Handle CORS preflight before any auth/context middleware can reject it.
+ */
+app.options(/.*/, (_req, res) => {
   res.sendStatus(200);
 });
 
@@ -82,10 +85,16 @@ app.use(
   })
 );
 
-// public pricing routes
+/**
+ * Public routes
+ * Pricing must stay public so browser GET/OPTIONS requests are not blocked
+ * by actor-context requirements.
+ */
 app.use("/api", pricingRoutes);
 
-// protected routes
+/**
+ * Protected routes
+ */
 app.use(requireActorContextMiddleware);
 
 app.use("/api", deploymentsRoutes);
