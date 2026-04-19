@@ -5,25 +5,15 @@ import { apiKeyMiddleware } from "../../../middleware/apiKey.middleware";
 const router = Router();
 const controller = new PricingController();
 
-router.options("/pricing", (_req, res) => {
-  res.sendStatus(200);
-});
-
-router.options("/pricing/packages/:code", (_req, res) => {
-  res.sendStatus(200);
-});
-
-router.options("/pricing/addons/:code", (_req, res) => {
-  res.sendStatus(200);
-});
-
-router.options("/pricing/vat-summary", (_req, res) => {
-  res.sendStatus(200);
-});
-
+/**
+ * 🔓 PUBLIC READ
+ */
 router.get("/pricing", controller.getSummary);
 router.get("/pricing/vat-summary", controller.getVatSummary);
 
+/**
+ * 🔐 WRITE (ADMIN)
+ */
 router.put("/pricing/packages/:code", apiKeyMiddleware, controller.updatePackage);
 router.put("/pricing/addons/:code", apiKeyMiddleware, controller.updateAddon);
 

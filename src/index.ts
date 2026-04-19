@@ -35,18 +35,21 @@ import { logger } from "./lib/logger";
 
 const app = express();
 
+/**
+ * 🔥 DEBUG MARKER (check App Runner logs)
+ */
+console.log("BOOT_MARKER_OPTIONS_V4");
+
+/**
+ * 🔥 CORS + PREFLIGHT (ALTIJD ALS EERSTE)
+ */
 const allowedOrigins = new Set([
   "https://vedantix.nl",
   "https://www.vedantix.nl",
   "https://api.vedantix.nl",
   "http://localhost:5173",
-  "http://127.0.0.1:5173",
 ]);
 
-/**
- * CORS + preflight must be the very first middleware.
- * This ensures OPTIONS never falls through to auth/context middleware.
- */
 app.use((req, res, next) => {
   const origin = String(req.headers.origin || "");
 
@@ -63,29 +66,37 @@ app.use((req, res, next) => {
   );
 
   if (req.method === "OPTIONS") {
+    console.log("OPTIONS_HIT", req.originalUrl);
     return res.sendStatus(200);
   }
 
   next();
 });
 
+/**
+ * BODY PARSER
+ */
 app.use(express.json({ limit: env.requestBodyLimit }));
 
+/**
+ * HEALTH CHECK
+ */
 app.get("/health", (_req, res) => {
   res.status(200).json({ ok: true });
 });
 
 /**
- * Keep system routes early if you already rely on them that way.
+ * SYSTEM ROUTES (indien nodig vroeg)
  */
 app.use(systemRoutes);
 
 /**
- * Shared middleware
+ * SHARED MIDDLEWARE
  */
 app.use(requestContextMiddleware);
 app.use(requestLoggingMiddleware);
 app.use(idempotencyMiddleware);
+
 app.use(
   createRateLimitMiddleware({
     windowMs: env.rateLimitWindowMs,
@@ -94,13 +105,12 @@ app.use(
 );
 
 /**
- * Public routes
- * Pricing must stay public so homepage/admin frontend GET requests do not get blocked.
+ * 🔓 PUBLIC ROUTES (BELANGRIJK)
  */
 app.use("/api", pricingRoutes);
 
 /**
- * Protected routes
+ * 🔐 PROTECTED ROUTES
  */
 app.use(requireActorContextMiddleware);
 
@@ -125,9 +135,15 @@ app.use("/api/mail", mailRoutes);
 app.use("/api/customers", customerMailRoutes);
 app.use("/api/finance", financeRoutes);
 
+/**
+ * ERROR HANDLING
+ */
 app.use(notFoundMiddleware);
 app.use(errorHandlerMiddleware);
 
+/**
+ * START SERVER
+ */
 app.listen(env.port, "0.0.0.0", () => {
   logger.info("Provisioning backend started", {
     port: env.port,
