@@ -1,5 +1,6 @@
 import cors from "cors";
 import express from "express";
+
 import deploymentRoutes from "./routes/deployment.routes";
 import domainRoutes from "./routes/domain.routes";
 import packageRoutes from "./routes/package.routes";
@@ -16,10 +17,12 @@ import deploymentsAuditRoutes from "./routes/deployments-audit.routes";
 import operationsRoutes from "./routes/operations.routes";
 import systemRoutes from "./routes/system.routes";
 import adminOpsRoutes from "./routes/admin-ops.routes";
+
 import mailRoutes from "./modules/mail/routes/mail.routes";
 import customerMailRoutes from "./modules/mail/routes/customer-mail.routes";
 import financeRoutes from "./modules/finance/routes/finance.routes";
 import pricingRoutes from "./modules/pricing/routes/pricing.routes";
+
 import { createRateLimitMiddleware } from "./middleware/rate-limit.middleware";
 import { notFoundMiddleware } from "./middleware/not-found.middleware";
 import { requestContextMiddleware } from "./middleware/request-context.middleware";
@@ -27,6 +30,7 @@ import { requireActorContextMiddleware } from "./middleware/require-actor-contex
 import { errorHandlerMiddleware } from "./middleware/error-handler.middleware";
 import { requestLoggingMiddleware } from "./middleware/request-logging.middleware";
 import { idempotencyMiddleware } from "./middleware/idempotency.middleware";
+
 import { env } from "./config/env";
 import { logger } from "./lib/logger";
 
@@ -37,6 +41,7 @@ app.use(
     origin: [
       "https://vedantix.nl",
       "https://www.vedantix.nl",
+      "https://api.vedantix.nl",
       "http://localhost:5173",
       "http://127.0.0.1:5173",
     ],
@@ -54,6 +59,13 @@ app.use(
   })
 );
 
+app.use((req, res, next) => {
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 app.use(express.json({ limit: env.requestBodyLimit }));
 
 app.get("/health", (_req, res) => {
@@ -62,10 +74,12 @@ app.get("/health", (_req, res) => {
 
 app.use(systemRoutes);
 
+/**
+ * Public middleware
+ */
 app.use(requestContextMiddleware);
 app.use(requestLoggingMiddleware);
 app.use(idempotencyMiddleware);
-
 app.use(
   createRateLimitMiddleware({
     windowMs: env.rateLimitWindowMs,
@@ -73,6 +87,15 @@ app.use(
   })
 );
 
+/**
+ * Public routes
+ * Pricing must stay public so homepage/admin frontend can read it without actor-context middleware blocking preflight/GET.
+ */
+app.use("/api", pricingRoutes);
+
+/**
+ * Protected routes
+ */
 app.use(requireActorContextMiddleware);
 
 app.use("/api", deploymentsRoutes);
@@ -91,7 +114,6 @@ app.use("/api", mailboxRoutes);
 app.use("/api", deleteRoutes);
 app.use("/api", redeployRoutes);
 app.use("/api", rollbackRoutes);
-app.use("/api", pricingRoutes);
 
 app.use("/api/mail", mailRoutes);
 app.use("/api/customers", customerMailRoutes);
