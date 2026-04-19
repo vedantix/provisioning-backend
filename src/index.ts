@@ -1,4 +1,3 @@
-import cors from "cors";
 import express from "express";
 
 import deploymentRoutes from "./routes/deployment.routes";
@@ -36,35 +35,37 @@ import { logger } from "./lib/logger";
 
 const app = express();
 
-app.use(
-  cors({
-    origin: [
-      "https://vedantix.nl",
-      "https://www.vedantix.nl",
-      "https://api.vedantix.nl",
-      "http://localhost:5173",
-      "http://127.0.0.1:5173",
-    ],
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "X-Api-Key",
-      "X-Tenant-Id",
-      "X-Actor-Id",
-      "X-Source",
-      "Idempotency-Key",
-    ],
-    optionsSuccessStatus: 200,
-  })
-);
+const allowedOrigins = new Set([
+  "https://vedantix.nl",
+  "https://www.vedantix.nl",
+  "https://api.vedantix.nl",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+]);
 
-/**
- * Handle CORS preflight before any auth/context middleware can reject it.
- */
-app.options(/.*/, (_req, res) => {
-  res.sendStatus(200);
+app.use((req, res, next) => {
+  const origin = String(req.headers.origin || "");
+
+  if (allowedOrigins.has(origin)) {
+    res.header("Access-Control-Allow-Origin", origin);
+  }
+
+  res.header("Vary", "Origin");
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header(
+    "Access-Control-Allow-Methods",
+    "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+  );
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, X-Api-Key, X-Tenant-Id, X-Actor-Id, X-Source, Idempotency-Key"
+  );
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+
+  next();
 });
 
 app.use(express.json({ limit: env.requestBodyLimit }));
@@ -87,8 +88,6 @@ app.use(
 
 /**
  * Public routes
- * Pricing must stay public so browser GET/OPTIONS requests are not blocked
- * by actor-context requirements.
  */
 app.use("/api", pricingRoutes);
 
