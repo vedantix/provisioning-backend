@@ -21,6 +21,7 @@ import mailRoutes from "./modules/mail/routes/mail.routes";
 import customerMailRoutes from "./modules/mail/routes/customer-mail.routes";
 import financeRoutes from "./modules/finance/routes/finance.routes";
 import pricingRoutes from "./modules/pricing/routes/pricing.routes";
+import customersRoutes from "./modules/customers/routes/customers.routes";
 
 import { createRateLimitMiddleware } from "./middleware/rate-limit.middleware";
 import { notFoundMiddleware } from "./middleware/not-found.middleware";
@@ -47,6 +48,7 @@ const allowedOrigins = new Set([
   "https://vedantix.nl",
   "https://www.vedantix.nl",
   "https://api.vedantix.nl",
+  "https://preview.vedantix.nl",
   "http://localhost:5173",
 ]);
 
@@ -62,7 +64,7 @@ app.use((req, res, next) => {
   res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
   res.header(
     "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, X-Api-Key, X-Tenant-Id, X-Actor-Id, X-Source, Idempotency-Key"
+    "Content-Type, Authorization, X-Api-Key, X-Tenant-Id, X-Actor-Id, X-Source, Idempotency-Key",
   );
 
   if (req.method === "OPTIONS") {
@@ -101,7 +103,7 @@ app.use(
   createRateLimitMiddleware({
     windowMs: env.rateLimitWindowMs,
     maxRequests: env.rateLimitMaxRequests,
-  })
+  }),
 );
 
 /**
@@ -113,6 +115,8 @@ app.use("/api", pricingRoutes);
  * 🔐 PROTECTED ROUTES
  */
 app.use(requireActorContextMiddleware);
+
+app.use("/api", customersRoutes);
 
 app.use("/api", deploymentsRoutes);
 app.use("/api", deploymentsRunRoutes);

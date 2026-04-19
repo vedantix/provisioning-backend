@@ -75,7 +75,7 @@ export const env = {
   healthcheckRequireApiKey: booleanFromEnv('HEALTHCHECK_REQUIRE_API_KEY', false),
   cleanupCandidateMinAgeHours: numberFromEnv('CLEANUP_CANDIDATE_MIN_AGE_HOURS', 24),
 
-  pricingTable: optional("PRICING_TABLE", "vedantix-pricing")!,
+  pricingTable: optional('PRICING_TABLE', 'vedantix-pricing')!,
 
   alertsEnabled: booleanFromEnv('ALERTS_ENABLED', false),
   alertTopicArn: optional('ALERT_TOPIC_ARN'),
@@ -92,6 +92,9 @@ export const env = {
   zohoOrganizationId: optional('ZOHO_ORGANIZATION_ID'),
   zohoTokenTimeoutMs: numberFromEnv('ZOHO_TOKEN_TIMEOUT_MS', 15_000),
   zohoRequestTimeoutMs: numberFromEnv('ZOHO_REQUEST_TIMEOUT_MS', 20_000),
+
+  base44EditorBaseUrl: optional('BASE44_EDITOR_BASE_URL', 'https://app.base44.com/apps')!,
+  base44PreviewBaseUrl: optional('BASE44_PREVIEW_BASE_URL', 'https://preview.vedantix.nl')!,
 
   isProduction: nodeEnv === 'production',
 } as const;
