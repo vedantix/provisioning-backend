@@ -5,7 +5,7 @@ import {
   PutCommand,
   QueryCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { env } from "../../../../src/config/env";
+import { env } from "../../../config/env";
 import type { PricingAddonRecord, PricingPackageRecord } from "../types/pricing.types";
 import { DEFAULT_ADDONS, DEFAULT_PACKAGES } from "../config/pricing.defaults";
 

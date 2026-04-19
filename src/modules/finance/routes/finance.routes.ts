@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { FinanceController } from '../controllers/finance.controller';
-import { asyncHandler } from '../../../../src/middleware/async-handler';
+import { asyncHandler } from '../../../middleware/async-handler';
 
 const router = Router();
 const controller = new FinanceController();

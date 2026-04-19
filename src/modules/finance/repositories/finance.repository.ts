@@ -6,7 +6,7 @@ import {
   QueryCommand,
   ScanCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { env } from '../../../../src/config/env';
+import { env } from '../../../config/env';
 import type {
   CustomerFinanceRecord,
   FinanceExpenseRecord,
