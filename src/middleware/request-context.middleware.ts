@@ -1,51 +1,38 @@
-import crypto from 'node:crypto';
-import type { NextFunction, Request, Response } from 'express';
-import type { SourceType } from '../domain/deployments/types';
+import type { Request, Response, NextFunction } from "express";
 
-export type RequestContext = {
-  requestId: string;
-  tenantId: string;
+type RequestContext = {
+  source: string;
   actorId: string;
-  source: SourceType;
-  idempotencyKey?: string;
+  tenantId: string;
 };
 
 declare global {
   namespace Express {
     interface Request {
-      ctx: RequestContext;
+      ctx?: RequestContext;
     }
   }
 }
 
-function readHeader(req: Request, key: string): string | undefined {
-  const value = req.header(key);
-  return value?.trim() || undefined;
-}
-
 export function requestContextMiddleware(
   req: Request,
-  res: Response,
-  next: NextFunction,
+  _res: Response,
+  next: NextFunction
 ) {
-  const requestId =
-    readHeader(req, 'X-Request-Id') ||
-    readHeader(req, 'X-Correlation-Id') ||
-    crypto.randomUUID();
-
-  const tenantId = readHeader(req, 'X-Tenant-Id') || 'default';
-  const actorId = readHeader(req, 'X-Actor-Id') || 'system';
-  const source = (readHeader(req, 'X-Source') || 'API') as SourceType;
-  const idempotencyKey = readHeader(req, 'Idempotency-Key');
+  if (req.method === "OPTIONS") {
+    req.ctx = {
+      source: String(req.header("X-Source") || "").trim(),
+      actorId: String(req.header("X-Actor-Id") || "").trim(),
+      tenantId: String(req.header("X-Tenant-Id") || "default").trim() || "default",
+    };
+    return next();
+  }
 
   req.ctx = {
-    requestId,
-    tenantId,
-    actorId,
-    source,
-    idempotencyKey,
+    source: String(req.header("X-Source") || "").trim(),
+    actorId: String(req.header("X-Actor-Id") || "").trim(),
+    tenantId: String(req.header("X-Tenant-Id") || "default").trim() || "default",
   };
 
-  res.setHeader('X-Request-Id', requestId);
-  next();
+  return next();
 }

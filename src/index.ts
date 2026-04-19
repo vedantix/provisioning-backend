@@ -56,14 +56,12 @@ app.use(
       "X-Source",
       "Idempotency-Key",
     ],
+    optionsSuccessStatus: 200,
   })
 );
 
-app.use((req, res, next) => {
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
-  }
-  next();
+app.options("*", (_req, res) => {
+  res.sendStatus(200);
 });
 
 app.use(express.json({ limit: env.requestBodyLimit }));
@@ -74,9 +72,6 @@ app.get("/health", (_req, res) => {
 
 app.use(systemRoutes);
 
-/**
- * Public middleware
- */
 app.use(requestContextMiddleware);
 app.use(requestLoggingMiddleware);
 app.use(idempotencyMiddleware);
@@ -87,15 +82,10 @@ app.use(
   })
 );
 
-/**
- * Public routes
- * Pricing must stay public so homepage/admin frontend can read it without actor-context middleware blocking preflight/GET.
- */
+// public pricing routes
 app.use("/api", pricingRoutes);
 
-/**
- * Protected routes
- */
+// protected routes
 app.use(requireActorContextMiddleware);
 
 app.use("/api", deploymentsRoutes);
