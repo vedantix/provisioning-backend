@@ -43,6 +43,10 @@ const allowedOrigins = new Set([
   "http://127.0.0.1:5173",
 ]);
 
+/**
+ * CORS + preflight must be the very first middleware.
+ * This ensures OPTIONS never falls through to auth/context middleware.
+ */
 app.use((req, res, next) => {
   const origin = String(req.headers.origin || "");
 
@@ -52,10 +56,7 @@ app.use((req, res, next) => {
 
   res.header("Vary", "Origin");
   res.header("Access-Control-Allow-Credentials", "true");
-  res.header(
-    "Access-Control-Allow-Methods",
-    "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-  );
+  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
   res.header(
     "Access-Control-Allow-Headers",
     "Content-Type, Authorization, X-Api-Key, X-Tenant-Id, X-Actor-Id, X-Source, Idempotency-Key"
@@ -74,8 +75,14 @@ app.get("/health", (_req, res) => {
   res.status(200).json({ ok: true });
 });
 
+/**
+ * Keep system routes early if you already rely on them that way.
+ */
 app.use(systemRoutes);
 
+/**
+ * Shared middleware
+ */
 app.use(requestContextMiddleware);
 app.use(requestLoggingMiddleware);
 app.use(idempotencyMiddleware);
@@ -88,6 +95,7 @@ app.use(
 
 /**
  * Public routes
+ * Pricing must stay public so homepage/admin frontend GET requests do not get blocked.
  */
 app.use("/api", pricingRoutes);
 
