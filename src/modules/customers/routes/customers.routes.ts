@@ -8,6 +8,12 @@ const controller = new CustomersController();
 router.post('/customers', asyncHandler(controller.createCustomer));
 router.get('/customers', asyncHandler(controller.listCustomers));
 router.get('/customers/:customerId', asyncHandler(controller.getCustomer));
+
+router.post('/customers/:customerId/base44-app/auto', asyncHandler(controller.autoCreateBase44App));
 router.post('/customers/:customerId/base44-app', asyncHandler(controller.linkBase44App));
+
+router.post('/customers/:customerId/preview-ready', asyncHandler(controller.markPreviewReady));
+router.post('/customers/:customerId/approve', asyncHandler(controller.markApprovedForProduction));
+router.post('/customers/:customerId/deploy', asyncHandler(controller.deployCustomer));
 
 export default router;

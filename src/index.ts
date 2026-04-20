@@ -16,6 +16,7 @@ import deploymentsAuditRoutes from "./routes/deployments-audit.routes";
 import operationsRoutes from "./routes/operations.routes";
 import systemRoutes from "./routes/system.routes";
 import adminOpsRoutes from "./routes/admin-ops.routes";
+import previewRoutes from "./modules/preview/routes/preview.routes";
 
 import mailRoutes from "./modules/mail/routes/mail.routes";
 import customerMailRoutes from "./modules/mail/routes/customer-mail.routes";
@@ -30,6 +31,7 @@ import { requireActorContextMiddleware } from "./middleware/require-actor-contex
 import { errorHandlerMiddleware } from "./middleware/error-handler.middleware";
 import { requestLoggingMiddleware } from "./middleware/request-logging.middleware";
 import { idempotencyMiddleware } from "./middleware/idempotency.middleware";
+
 
 import { env } from "./config/env";
 import { logger } from "./lib/logger";
@@ -125,6 +127,7 @@ app.use("/api", deploymentsActionsRoutes);
 app.use("/api", deploymentsRollbackRoutes);
 app.use("/api", deploymentsAuditRoutes);
 app.use("/api", operationsRoutes);
+
 app.use("/api", adminOpsRoutes);
 
 app.use("/api", deploymentRoutes);
@@ -138,6 +141,8 @@ app.use("/api", rollbackRoutes);
 app.use("/api/mail", mailRoutes);
 app.use("/api/customers", customerMailRoutes);
 app.use("/api/finance", financeRoutes);
+
+app.use("/", previewRoutes);
 
 /**
  * ERROR HANDLING

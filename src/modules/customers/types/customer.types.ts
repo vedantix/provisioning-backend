@@ -66,6 +66,17 @@ export type CustomerRecord = {
     linkedAt?: string;
   };
 
+  preview?: {
+    slug?: string;
+    path?: string;
+    fullUrl?: string;
+    targetUrl?: string;
+    isIndexed?: boolean;
+    isPasswordProtected?: boolean;
+    status?: 'NOT_READY' | 'READY' | 'ARCHIVED';
+    updatedAt?: string;
+  };
+
   deployment?: {
     deploymentId?: string;
     status?: string;
@@ -111,4 +122,17 @@ export type LinkBase44AppInput = {
   templateKey?: string;
   niche?: string;
   requestedPrompt?: string;
+};
+
+export type UpdateCustomerWorkflowInput = {
+  tenantId: string;
+  actorId: string;
+  customerId: string;
+  status: CustomerStatus;
+  websiteBuildStatus: WebsiteBuildStatus;
+  previewUrl?: string;
+  deploymentId?: string;
+  deploymentStatus?: string;
+  deploymentStage?: string | null;
+  liveDomain?: string;
 };

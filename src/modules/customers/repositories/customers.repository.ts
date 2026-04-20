@@ -130,4 +130,50 @@ export class CustomersRepository {
       }),
     );
   }
+
+  async updateWorkflowState(params: {
+    customerId: string;
+    updatedAt: string;
+    updatedBy: string;
+    status: CustomerRecord['status'];
+    websiteBuildStatus: CustomerRecord['websiteBuildStatus'];
+    previewUrl?: string;
+    deploymentId?: string;
+    deploymentStatus?: string;
+    deploymentStage?: string | null;
+    liveDomain?: string;
+  }): Promise<void> {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: TABLE_NAME,
+        Key: { pk: params.customerId },
+        UpdateExpression: `
+          SET
+            #status = :status,
+            websiteBuildStatus = :websiteBuildStatus,
+            updatedAt = :updatedAt,
+            updatedBy = :updatedBy,
+            base44.previewUrl = :previewUrl,
+            deployment.deploymentId = :deploymentId,
+            deployment.status = :deploymentStatus,
+            deployment.currentStage = :deploymentStage,
+            deployment.liveDomain = :liveDomain
+        `,
+        ExpressionAttributeNames: {
+          '#status': 'status',
+        },
+        ExpressionAttributeValues: {
+          ':status': params.status,
+          ':websiteBuildStatus': params.websiteBuildStatus,
+          ':updatedAt': params.updatedAt,
+          ':updatedBy': params.updatedBy,
+          ':previewUrl': params.previewUrl ?? null,
+          ':deploymentId': params.deploymentId ?? null,
+          ':deploymentStatus': params.deploymentStatus ?? null,
+          ':deploymentStage': params.deploymentStage ?? null,
+          ':liveDomain': params.liveDomain ?? null,
+        },
+      }),
+    );
+  }
 }

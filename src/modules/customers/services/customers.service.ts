@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { CustomersRepository } from '../repositories/customers.repository';
+import { PreviewService } from '../../preview/services/preview.service';
 import type {
   CreateCustomerInput,
   CustomerRecord,
@@ -16,6 +17,7 @@ function slugify(value: string): string {
 export class CustomersService {
   constructor(
     private readonly customersRepository = new CustomersRepository(),
+    private readonly previewService = new PreviewService(),
   ) {}
 
   async createCustomer(input: CreateCustomerInput): Promise<CustomerRecord> {
@@ -24,6 +26,11 @@ export class CustomersService {
     const domain = input.domain.trim().toLowerCase();
     const companySlug = slugify(input.companyName);
     const domainSlug = slugify(domain.split('.')[0] || input.companyName);
+
+    const preview = this.previewService.buildPreviewMetadata({
+      companyName: input.companyName,
+      domain,
+    });
 
     const customer: CustomerRecord = {
       id: `cust_${companySlug || domainSlug || crypto.randomUUID()}`,
@@ -56,6 +63,8 @@ export class CustomersService {
         status: 'NOT_CREATED',
       },
 
+      preview,
+
       deployment: {},
 
       createdAt: now,
@@ -68,19 +77,76 @@ export class CustomersService {
     return customer;
   }
 
+  async updateWorkflowState(
+    customer: CustomerRecord,
+    params: {
+      tenantId: string;
+      actorId: string;
+      customerId: string;
+      status: CustomerRecord['status'];
+      websiteBuildStatus: CustomerRecord['websiteBuildStatus'];
+      previewUrl?: string;
+      deploymentId?: string;
+      deploymentStatus?: string;
+      deploymentStage?: string | null;
+      liveDomain?: string;
+    },
+  ): Promise<CustomerRecord> {
+    const now = new Date().toISOString();
+
+    const previewMeta = this.previewService.buildPreviewMetadata({
+      companyName: customer.companyName,
+      domain: customer.domain,
+      base44PreviewUrl: params.previewUrl || customer.base44?.previewUrl,
+    });
+
+    const updated: CustomerRecord = {
+      ...customer,
+      status: params.status,
+      websiteBuildStatus: params.websiteBuildStatus,
+      updatedAt: now,
+      updatedBy: params.actorId,
+
+      base44: {
+        ...customer.base44,
+        previewUrl: params.previewUrl || customer.base44?.previewUrl,
+      },
+
+      preview: {
+        ...customer.preview,
+        ...previewMeta,
+      },
+
+      deployment: {
+        ...customer.deployment,
+        deploymentId: params.deploymentId ?? customer.deployment?.deploymentId,
+        status: params.deploymentStatus ?? customer.deployment?.status,
+        currentStage:
+          params.deploymentStage ?? customer.deployment?.currentStage,
+        liveDomain: params.liveDomain ?? customer.deployment?.liveDomain,
+      },
+    };
+
+    if (params.websiteBuildStatus === 'LIVE') {
+      updated.preview = {
+        ...updated.preview,
+        status: 'ARCHIVED',
+        updatedAt: now,
+      };
+    }
+
+    await this.customersRepository.update(updated);
+    return updated;
+  }
+
   async getCustomerById(
     tenantId: string,
     customerId: string,
   ): Promise<CustomerRecord | null> {
     const customer = await this.customersRepository.getById(customerId);
 
-    if (!customer) {
-      return null;
-    }
-
-    if (customer.tenantId !== tenantId) {
-      return null;
-    }
+    if (!customer) return null;
+    if (customer.tenantId !== tenantId) return null;
 
     return customer;
   }
