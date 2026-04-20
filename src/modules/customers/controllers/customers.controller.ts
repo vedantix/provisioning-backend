@@ -14,6 +14,7 @@ import { FinanceService } from '../../finance/services/finance.service';
 import type { PackageCode } from '../../mail/types/mail.types';
 import { Base44AutoCreateService } from '../../base44/services/base44-autocreate.service';
 import { ContentSyncService } from '../../content-sync/services/content-sync.service';
+import { CustomerBuildFlowService } from '../../customer-workflow/services/customer-build-flow.service';
 
 function getSingleParam(
   value: string | string[] | undefined,
@@ -129,6 +130,7 @@ export class CustomersController {
     private readonly financeService = new FinanceService(),
     private readonly base44AutoCreateService = new Base44AutoCreateService(),
     private readonly contentSyncService = new ContentSyncService(),
+    private readonly customerBuildFlowService = new CustomerBuildFlowService(),
   ) {}
 
   createCustomer = async (req: Request, res: Response): Promise<void> => {
@@ -186,6 +188,42 @@ export class CustomersController {
 
     res.status(200).json({
       data: customer,
+      requestId: req.ctx.requestId,
+    });
+  };
+
+  startBuildFlow = async (req: Request, res: Response): Promise<void> => {
+    const customerId = getSingleParam(req.params.customerId, 'customerId');
+
+    const customer = await this.customersService.getCustomerById(
+      req.ctx.tenantId,
+      customerId,
+    );
+
+    if (!customer) {
+      res.status(404).json({
+        error: 'Customer not found',
+        requestId: req.ctx.requestId,
+      });
+      return;
+    }
+
+    const result = await this.customerBuildFlowService.startFlow(customer, {
+      tenantId: req.ctx.tenantId,
+      actorId: req.ctx.actorId,
+      customerId,
+      niche: req.body.niche,
+      templateKey: req.body.templateKey,
+      requestedPrompt: req.body.requestedPrompt,
+      projectId: req.body.projectId,
+      indexHtml: req.body.indexHtml,
+      additionalFiles: Array.isArray(req.body.additionalFiles)
+        ? req.body.additionalFiles
+        : [],
+    });
+
+    res.status(200).json({
+      data: result,
       requestId: req.ctx.requestId,
     });
   };
