@@ -11,6 +11,7 @@ router.get('/customers/:customerId', asyncHandler(controller.getCustomer));
 
 router.post('/customers/:customerId/base44-app/auto', asyncHandler(controller.autoCreateBase44App));
 router.post('/customers/:customerId/base44-app', asyncHandler(controller.linkBase44App));
+router.post('/customers/:customerId/content-sync', asyncHandler(controller.syncCustomerContent));
 
 router.post('/customers/:customerId/preview-ready', asyncHandler(controller.markPreviewReady));
 router.post('/customers/:customerId/approve', asyncHandler(controller.markApprovedForProduction));

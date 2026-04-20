@@ -13,6 +13,7 @@ import { MailProvisioningService } from '../../mail/services/mail-provisioning.s
 import { FinanceService } from '../../finance/services/finance.service';
 import type { PackageCode } from '../../mail/types/mail.types';
 import { Base44AutoCreateService } from '../../base44/services/base44-autocreate.service';
+import { ContentSyncService } from '../../content-sync/services/content-sync.service';
 
 function getSingleParam(
   value: string | string[] | undefined,
@@ -106,6 +107,17 @@ function ensureApprovedForProduction(customer: any): void {
   }
 }
 
+function ensureContentSynced(customer: any): void {
+  if (
+    customer?.contentSync?.status !== 'SYNCED' ||
+    !customer?.contentSync?.repositoryName
+  ) {
+    throw new ConflictHttpError(
+      'Content is nog niet naar GitHub gesynchroniseerd.',
+    );
+  }
+}
+
 export class CustomersController {
   constructor(
     private readonly customersService = new CustomersService(),
@@ -116,6 +128,7 @@ export class CustomersController {
     private readonly mailProvisioningService = new MailProvisioningService(),
     private readonly financeService = new FinanceService(),
     private readonly base44AutoCreateService = new Base44AutoCreateService(),
+    private readonly contentSyncService = new ContentSyncService(),
   ) {}
 
   createCustomer = async (req: Request, res: Response): Promise<void> => {
@@ -269,6 +282,49 @@ export class CustomersController {
     });
   };
 
+  syncCustomerContent = async (req: Request, res: Response): Promise<void> => {
+    const customerId = getSingleParam(req.params.customerId, 'customerId');
+
+    const customer = await this.customersService.getCustomerById(
+      req.ctx.tenantId,
+      customerId,
+    );
+
+    if (!customer) {
+      res.status(404).json({
+        error: 'Customer not found',
+        requestId: req.ctx.requestId,
+      });
+      return;
+    }
+
+    ensureHasBase44Linked(customer);
+
+    const result = await this.contentSyncService.syncCustomerContent(customer, {
+      customerId: customer.id,
+      tenantId: req.ctx.tenantId,
+      actorId: req.ctx.actorId,
+      projectId: req.body.projectId,
+      indexHtml: req.body.indexHtml,
+      additionalFiles: Array.isArray(req.body.additionalFiles)
+        ? req.body.additionalFiles
+        : [],
+    });
+
+    const refreshed = await this.customersService.getCustomerById(
+      req.ctx.tenantId,
+      customer.id,
+    );
+
+    res.status(200).json({
+      data: {
+        customer: refreshed,
+        sync: result,
+      },
+      requestId: req.ctx.requestId,
+    });
+  };
+
   markPreviewReady = async (req: Request, res: Response): Promise<void> => {
     const customerId = getSingleParam(req.params.customerId, 'customerId');
 
@@ -363,6 +419,7 @@ export class CustomersController {
     ensureHasBase44Linked(customer);
     ensureHasPreview(customer);
     ensureApprovedForProduction(customer);
+    ensureContentSynced(customer);
 
     const input = normalizeCreateDeploymentInput({
       customerId: customer.id,
@@ -429,6 +486,16 @@ export class CustomersController {
     });
 
     await this.deploymentsRepository.create(deployment);
+
+    await this.deploymentsRepository.updateManagedResources(
+      deploymentId,
+      {
+        ...(deployment.managedResources || {}),
+        repoName: customer.contentSync?.repositoryName,
+      },
+      new Date().toISOString(),
+    );
+
     await this.operationsRepository.create(operation);
 
     const { AuditService } = await import('../../../domain/audit/audit.service');
@@ -444,6 +511,7 @@ export class CustomersController {
       metadata: {
         domain: deployment.domain,
         packageCode: deployment.packageCode,
+        repoName: customer.contentSync?.repositoryName,
       },
     });
 
@@ -505,6 +573,7 @@ export class CustomersController {
         operationId: operation.operationId,
         status: deployment.status,
         currentStage: deployment.currentStage ?? null,
+        repositoryName: customer.contentSync?.repositoryName,
       },
       requestId: req.ctx.requestId,
     });

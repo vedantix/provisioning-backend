@@ -77,11 +77,21 @@ export type CustomerRecord = {
     updatedAt?: string;
   };
 
+  contentSync?: {
+    status?: 'NOT_STARTED' | 'SYNCED' | 'FAILED';
+    repositoryName?: string;
+    branch?: string;
+    lastSyncedAt?: string;
+    filesCount?: number;
+    source?: 'BASE44_EXPORT';
+  };
+
   deployment?: {
     deploymentId?: string;
     status?: string;
     currentStage?: string | null;
     liveDomain?: string;
+    repositoryName?: string;
   };
 
   createdAt: string;

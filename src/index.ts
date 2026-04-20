@@ -16,13 +16,14 @@ import deploymentsAuditRoutes from "./routes/deployments-audit.routes";
 import operationsRoutes from "./routes/operations.routes";
 import systemRoutes from "./routes/system.routes";
 import adminOpsRoutes from "./routes/admin-ops.routes";
-import previewRoutes from "./modules/preview/routes/preview.routes";
 
 import mailRoutes from "./modules/mail/routes/mail.routes";
 import customerMailRoutes from "./modules/mail/routes/customer-mail.routes";
 import financeRoutes from "./modules/finance/routes/finance.routes";
 import pricingRoutes from "./modules/pricing/routes/pricing.routes";
 import customersRoutes from "./modules/customers/routes/customers.routes";
+import previewRoutes from "./modules/preview/routes/preview.routes";
+import base44WebhookRoutes from "./modules/base44/routes/base44-webhook.routes";
 
 import { createRateLimitMiddleware } from "./middleware/rate-limit.middleware";
 import { notFoundMiddleware } from "./middleware/not-found.middleware";
@@ -32,20 +33,13 @@ import { errorHandlerMiddleware } from "./middleware/error-handler.middleware";
 import { requestLoggingMiddleware } from "./middleware/request-logging.middleware";
 import { idempotencyMiddleware } from "./middleware/idempotency.middleware";
 
-
 import { env } from "./config/env";
 import { logger } from "./lib/logger";
 
 const app = express();
 
-/**
- * 🔥 DEBUG MARKER (check App Runner logs)
- */
 console.log("BOOT_MARKER_OPTIONS_V4");
 
-/**
- * 🔥 CORS + PREFLIGHT (ALTIJD ALS EERSTE)
- */
 const allowedOrigins = new Set([
   "https://vedantix.nl",
   "https://www.vedantix.nl",
@@ -66,7 +60,7 @@ app.use((req, res, next) => {
   res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
   res.header(
     "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, X-Api-Key, X-Tenant-Id, X-Actor-Id, X-Source, Idempotency-Key",
+    "Content-Type, Authorization, X-Api-Key, X-Tenant-Id, X-Actor-Id, X-Source, Idempotency-Key, X-Base44-Webhook-Secret, X-Webhook-Secret",
   );
 
   if (req.method === "OPTIONS") {
@@ -77,26 +71,14 @@ app.use((req, res, next) => {
   next();
 });
 
-/**
- * BODY PARSER
- */
 app.use(express.json({ limit: env.requestBodyLimit }));
 
-/**
- * HEALTH CHECK
- */
 app.get("/health", (_req, res) => {
   res.status(200).json({ ok: true });
 });
 
-/**
- * SYSTEM ROUTES (indien nodig vroeg)
- */
 app.use(systemRoutes);
 
-/**
- * SHARED MIDDLEWARE
- */
 app.use(requestContextMiddleware);
 app.use(requestLoggingMiddleware);
 app.use(idempotencyMiddleware);
@@ -108,14 +90,10 @@ app.use(
   }),
 );
 
-/**
- * 🔓 PUBLIC ROUTES (BELANGRIJK)
- */
 app.use("/api", pricingRoutes);
+app.use("/api/webhooks", base44WebhookRoutes);
+app.use("/", previewRoutes);
 
-/**
- * 🔐 PROTECTED ROUTES
- */
 app.use(requireActorContextMiddleware);
 
 app.use("/api", customersRoutes);
@@ -127,7 +105,6 @@ app.use("/api", deploymentsActionsRoutes);
 app.use("/api", deploymentsRollbackRoutes);
 app.use("/api", deploymentsAuditRoutes);
 app.use("/api", operationsRoutes);
-
 app.use("/api", adminOpsRoutes);
 
 app.use("/api", deploymentRoutes);
@@ -142,17 +119,9 @@ app.use("/api/mail", mailRoutes);
 app.use("/api/customers", customerMailRoutes);
 app.use("/api/finance", financeRoutes);
 
-app.use("/", previewRoutes);
-
-/**
- * ERROR HANDLING
- */
 app.use(notFoundMiddleware);
 app.use(errorHandlerMiddleware);
 
-/**
- * START SERVER
- */
 app.listen(env.port, "0.0.0.0", () => {
   logger.info("Provisioning backend started", {
     port: env.port,

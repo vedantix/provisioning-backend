@@ -101,6 +101,8 @@ export const env = {
   base44AutoCreateApiKey: optional('BASE44_AUTOCREATE_API_KEY'),
   base44AutoCreateTimeoutMs: numberFromEnv('BASE44_AUTOCREATE_TIMEOUT_MS', 30_000),
 
+  base44ExportWebhookSecret: optional('BASE44_EXPORT_WEBHOOK_SECRET'),
+
   isProduction: nodeEnv === 'production',
 } as const;
 
