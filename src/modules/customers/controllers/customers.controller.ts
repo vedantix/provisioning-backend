@@ -285,6 +285,63 @@ export class CustomersController {
     });
   };
 
+  updateCustomer = async (req: Request, res: Response): Promise<void> => {
+    const customerId = getSingleParam(req.params.customerId, 'customerId');
+  
+    const existing = await this.customersService.getCustomerById(
+      req.ctx.tenantId,
+      customerId,
+    );
+  
+    if (!existing) {
+      res.status(404).json({
+        error: 'Customer not found',
+        requestId: req.ctx.requestId,
+      });
+      return;
+    }
+  
+    const updated = await this.customersService.updateCustomer({
+      tenantId: req.ctx.tenantId,
+      actorId: req.ctx.actorId,
+      customerId,
+      payload: req.body,
+    });
+  
+    res.status(200).json({
+      data: updated,
+      requestId: req.ctx.requestId,
+    });
+  };
+  
+  deleteCustomer = async (req: Request, res: Response): Promise<void> => {
+    const customerId = getSingleParam(req.params.customerId, 'customerId');
+  
+    const existing = await this.customersService.getCustomerById(
+      req.ctx.tenantId,
+      customerId,
+    );
+  
+    if (!existing) {
+      res.status(404).json({
+        error: 'Customer not found',
+        requestId: req.ctx.requestId,
+      });
+      return;
+    }
+  
+    const updated = await this.customersService.softDeleteCustomer({
+      tenantId: req.ctx.tenantId,
+      actorId: req.ctx.actorId,
+      customerId,
+    });
+  
+    res.status(200).json({
+      data: updated,
+      requestId: req.ctx.requestId,
+    });
+  };
+
   linkBase44App = async (req: Request, res: Response): Promise<void> => {
     const customerId = getSingleParam(req.params.customerId, 'customerId');
 

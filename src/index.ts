@@ -24,11 +24,13 @@ import pricingRoutes from "./modules/pricing/routes/pricing.routes";
 import customersRoutes from "./modules/customers/routes/customers.routes";
 import previewRoutes from "./modules/preview/routes/preview.routes";
 import base44WebhookRoutes from "./modules/base44/routes/base44-webhook.routes";
+import adminAuthRoutes from "./modules/admin-auth/routes/admin-auth.routes";
 
 import { createRateLimitMiddleware } from "./middleware/rate-limit.middleware";
 import { notFoundMiddleware } from "./middleware/not-found.middleware";
 import { requestContextMiddleware } from "./middleware/request-context.middleware";
 import { requireActorContextMiddleware } from "./middleware/require-actor-context.middleware";
+import { requireAdminAuthMiddleware } from "./middleware/require-admin-auth.middleware";
 import { errorHandlerMiddleware } from "./middleware/error-handler.middleware";
 import { requestLoggingMiddleware } from "./middleware/request-logging.middleware";
 import { idempotencyMiddleware } from "./middleware/idempotency.middleware";
@@ -93,7 +95,9 @@ app.use(
 app.use("/api", pricingRoutes);
 app.use("/api/webhooks", base44WebhookRoutes);
 app.use("/", previewRoutes);
+app.use("/api", adminAuthRoutes);
 
+app.use(requireAdminAuthMiddleware);
 app.use(requireActorContextMiddleware);
 
 app.use("/api", customersRoutes);

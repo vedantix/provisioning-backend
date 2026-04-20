@@ -154,4 +154,57 @@ export class CustomersService {
   async listCustomers(tenantId: string): Promise<CustomerRecord[]> {
     return this.customersRepository.listByTenant(tenantId);
   }
+
+  async updateCustomer(params: {
+    tenantId: string;
+    actorId: string;
+    customerId: string;
+    payload: Partial<CustomerRecord>;
+  }): Promise<CustomerRecord> {
+    const existing = await this.getCustomerById(params.tenantId, params.customerId);
+  
+    if (!existing) {
+      throw new Error('Customer not found');
+    }
+  
+    const now = new Date().toISOString();
+  
+    const updated: CustomerRecord = {
+      ...existing,
+      ...params.payload,
+      id: existing.id,
+      tenantId: existing.tenantId,
+      updatedAt: now,
+      updatedBy: params.actorId,
+    };
+  
+    await this.customersRepository.update(updated);
+  
+    return updated;
+  }
+  
+  async softDeleteCustomer(params: {
+    tenantId: string;
+    actorId: string;
+    customerId: string;
+  }): Promise<CustomerRecord> {
+    const existing = await this.getCustomerById(params.tenantId, params.customerId);
+  
+    if (!existing) {
+      throw new Error('Customer not found');
+    }
+  
+    const now = new Date().toISOString();
+  
+    const updated: CustomerRecord = {
+      ...existing,
+      status: 'cancelled',
+      updatedAt: now,
+      updatedBy: params.actorId,
+    };
+  
+    await this.customersRepository.update(updated);
+  
+    return updated;
+  }
 }

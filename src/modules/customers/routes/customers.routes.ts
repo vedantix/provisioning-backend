@@ -9,6 +9,9 @@ router.post('/customers', asyncHandler(controller.createCustomer));
 router.get('/customers', asyncHandler(controller.listCustomers));
 router.get('/customers/:customerId', asyncHandler(controller.getCustomer));
 
+router.put('/customers/:customerId', asyncHandler(controller.updateCustomer));
+router.delete('/customers/:customerId', asyncHandler(controller.deleteCustomer));
+
 router.post('/customers/:customerId/start-build', asyncHandler(controller.startBuildFlow));
 router.post('/customers/:customerId/base44-app/auto', asyncHandler(controller.autoCreateBase44App));
 router.post('/customers/:customerId/base44-app', asyncHandler(controller.linkBase44App));

@@ -103,6 +103,10 @@ export const env = {
 
   base44ExportWebhookSecret: optional('BASE44_EXPORT_WEBHOOK_SECRET'),
 
+  adminPassword: optional('ADMIN_PASSWORD', 'vedantix-admin')!,
+  adminSessionSecret: optional('ADMIN_SESSION_SECRET', 'vedantix-admin-session-secret')!,
+  adminSessionTtlHours: numberFromEnv('ADMIN_SESSION_TTL_HOURS', 24),
+
   isProduction: nodeEnv === 'production',
 } as const;
 
