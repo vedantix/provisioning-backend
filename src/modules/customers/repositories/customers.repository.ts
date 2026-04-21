@@ -32,6 +32,10 @@ export class CustomersRepository {
   }
 
   async getById(customerId: string): Promise<CustomerRecord | null> {
+    if (!customerId || typeof customerId !== 'string') {
+      throw new Error('Invalid customerId');
+    }
+
     const result = await ddb.send(
       new GetCommand({
         TableName: TABLE_NAME,
@@ -74,30 +78,37 @@ export class CustomersRepository {
 
   async updateBase44Link(params: {
     customerId: string;
+    tenantId: string;
     updatedAt: string;
     updatedBy: string;
     status: CustomerRecord['status'];
     websiteBuildStatus: CustomerRecord['websiteBuildStatus'];
     base44Status: CustomerRecord['base44']['status'];
+
     appId: string;
     appName?: string;
     editorUrl?: string;
     previewUrl?: string;
+
     templateKey?: string;
     niche?: string;
     requestedPrompt?: string;
+
     linkedAt: string;
   }): Promise<void> {
     await ddb.send(
       new UpdateCommand({
         TableName: TABLE_NAME,
         Key: { pk: params.customerId },
+
         UpdateExpression: `
           SET
             #status = :status,
             websiteBuildStatus = :websiteBuildStatus,
             updatedAt = :updatedAt,
             updatedBy = :updatedBy,
+            tenantId = :tenantId,
+
             base44.#base44Status = :base44Status,
             base44.appId = :appId,
             base44.appName = :appName,
@@ -108,70 +119,30 @@ export class CustomersRepository {
             base44.requestedPrompt = :requestedPrompt,
             base44.linkedAt = :linkedAt
         `,
+
         ExpressionAttributeNames: {
           '#status': 'status',
           '#base44Status': 'status',
         },
+
         ExpressionAttributeValues: {
           ':status': params.status,
           ':websiteBuildStatus': params.websiteBuildStatus,
           ':updatedAt': params.updatedAt,
           ':updatedBy': params.updatedBy,
+          ':tenantId': params.tenantId,
+
           ':base44Status': params.base44Status,
           ':appId': params.appId,
           ':appName': params.appName ?? null,
           ':editorUrl': params.editorUrl ?? null,
           ':previewUrl': params.previewUrl ?? null,
+
           ':templateKey': params.templateKey ?? null,
           ':niche': params.niche ?? null,
           ':requestedPrompt': params.requestedPrompt ?? null,
-          ':linkedAt': params.linkedAt,
-        },
-      }),
-    );
-  }
 
-  async updateWorkflowState(params: {
-    customerId: string;
-    updatedAt: string;
-    updatedBy: string;
-    status: CustomerRecord['status'];
-    websiteBuildStatus: CustomerRecord['websiteBuildStatus'];
-    previewUrl?: string;
-    deploymentId?: string;
-    deploymentStatus?: string;
-    deploymentStage?: string | null;
-    liveDomain?: string;
-  }): Promise<void> {
-    await ddb.send(
-      new UpdateCommand({
-        TableName: TABLE_NAME,
-        Key: { pk: params.customerId },
-        UpdateExpression: `
-          SET
-            #status = :status,
-            websiteBuildStatus = :websiteBuildStatus,
-            updatedAt = :updatedAt,
-            updatedBy = :updatedBy,
-            base44.previewUrl = :previewUrl,
-            deployment.deploymentId = :deploymentId,
-            deployment.status = :deploymentStatus,
-            deployment.currentStage = :deploymentStage,
-            deployment.liveDomain = :liveDomain
-        `,
-        ExpressionAttributeNames: {
-          '#status': 'status',
-        },
-        ExpressionAttributeValues: {
-          ':status': params.status,
-          ':websiteBuildStatus': params.websiteBuildStatus,
-          ':updatedAt': params.updatedAt,
-          ':updatedBy': params.updatedBy,
-          ':previewUrl': params.previewUrl ?? null,
-          ':deploymentId': params.deploymentId ?? null,
-          ':deploymentStatus': params.deploymentStatus ?? null,
-          ':deploymentStage': params.deploymentStage ?? null,
-          ':liveDomain': params.liveDomain ?? null,
+          ':linkedAt': params.linkedAt,
         },
       }),
     );

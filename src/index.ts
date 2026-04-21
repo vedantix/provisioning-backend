@@ -18,6 +18,8 @@ import operationsRoutes from "./routes/operations.routes";
 import systemRoutes from "./routes/system.routes";
 import adminOpsRoutes from "./routes/admin-ops.routes";
 import base44Webhook from './modules/base44/routes/base44-autocreate.webhook';
+import customerBase44Routes from './modules/customers/routes/customer-base44.routes';
+
 
 import mailRoutes from "./modules/mail/routes/mail.routes";
 import customerMailRoutes from "./modules/mail/routes/customer-mail.routes";
@@ -127,6 +129,7 @@ app.use("/api", mailboxRoutes);
 app.use("/api", deleteRoutes);
 app.use("/api", redeployRoutes);
 app.use("/api", rollbackRoutes);
+app.use('/api', customerBase44Routes);
 
 app.use("/api/mail", mailRoutes);
 app.use("/api/customers", customerMailRoutes);

@@ -1,148 +1,65 @@
+export type CustomerStatus =
+  | 'NEW'
+  | 'INTAKE'
+  | 'IN_PROGRESS'
+  | 'WAITING_FOR_CUSTOMER'
+  | 'LIVE'
+  | 'MAINTENANCE'
+  | 'CANCELLED'
+  | 'ARCHIVED';
+
 export type WebsiteBuildStatus =
   | 'NOT_STARTED'
-  | 'APP_REQUESTED'
-  | 'APP_LINKED'
-  | 'BUILD_IN_PROGRESS'
-  | 'PREVIEW_READY'
-  | 'AWAITING_APPROVAL'
-  | 'APPROVED_FOR_PRODUCTION'
-  | 'LIVE';
+  | 'IN_PROGRESS'
+  | 'FAILED'
+  | 'COMPLETED';
 
-export type Base44AppStatus =
-  | 'NOT_CREATED'
-  | 'PENDING'
-  | 'LINKED';
+export type Base44Status =
+  | 'NOT_STARTED'
+  | 'CREATING'
+  | 'READY'
+  | 'FAILED';
 
-export type CustomerStatus =
-  | 'lead'
-  | 'intake'
-  | 'onboarding'
-  | 'building'
-  | 'awaiting_approval'
-  | 'approved'
-  | 'provisioning'
-  | 'active'
-  | 'warning'
-  | 'failed'
-  | 'paused'
-  | 'cancelled';
-
-export type CustomerRecord = {
-  id: string;
-  tenantId: string;
-  companyName: string;
-  contactName: string;
-  email: string;
-  phone?: string;
-  domain: string;
-  packageCode: string;
-  extras: string[];
-  notes?: string;
-  address?: string;
-  postalCode?: string;
-  city?: string;
-  country?: string;
-
-  status: CustomerStatus;
-  websiteBuildStatus: WebsiteBuildStatus;
-
-  finance: {
-    monthlyRevenueInclVat: number;
-    monthlyInfraCostInclVat: number;
-    oneTimeSetupInclVat: number;
-    vatRate: number;
-    currency: 'EUR';
-  };
-
-  base44: {
-    status: Base44AppStatus;
-    appId?: string;
-    appName?: string;
-    editorUrl?: string;
-    previewUrl?: string;
-    templateKey?: string;
-    niche?: string;
-    requestedPrompt?: string;
-    linkedAt?: string;
-  };
-
-  preview?: {
-    slug?: string;
-    path?: string;
-    fullUrl?: string;
-    targetUrl?: string;
-    isIndexed?: boolean;
-    isPasswordProtected?: boolean;
-    status?: 'NOT_READY' | 'READY' | 'ARCHIVED';
-    updatedAt?: string;
-  };
-
-  contentSync?: {
-    status?: 'NOT_STARTED' | 'SYNCED' | 'FAILED';
-    repositoryName?: string;
-    branch?: string;
-    lastSyncedAt?: string;
-    filesCount?: number;
-    source?: 'BASE44_EXPORT';
-  };
-
-  deployment?: {
-    deploymentId?: string;
-    status?: string;
-    currentStage?: string | null;
-    liveDomain?: string;
-    repositoryName?: string;
-  };
-
-  createdAt: string;
-  updatedAt: string;
-  createdBy: string;
-  updatedBy: string;
-};
-
-export type CreateCustomerInput = {
-  tenantId: string;
-  createdBy: string;
-  companyName: string;
-  contactName: string;
-  email: string;
-  phone?: string;
-  domain: string;
-  packageCode: string;
-  extras?: string[];
-  notes?: string;
-  address?: string;
-  postalCode?: string;
-  city?: string;
-  country?: string;
-  monthlyRevenueInclVat?: number;
-  monthlyInfraCostInclVat?: number;
-  oneTimeSetupInclVat?: number;
-  vatRate?: number;
-};
-
-export type LinkBase44AppInput = {
-  tenantId: string;
-  actorId: string;
-  customerId: string;
-  appId: string;
+export interface Base44Info {
+  status: Base44Status;
+  appId?: string;
   appName?: string;
   editorUrl?: string;
   previewUrl?: string;
+
   templateKey?: string;
   niche?: string;
   requestedPrompt?: string;
-};
 
-export type UpdateCustomerWorkflowInput = {
+  linkedAt?: string;
+}
+
+export interface DeploymentInfo {
+  deploymentId?: string;
+  status?: string;
+  currentStage?: string | null;
+  liveDomain?: string;
+}
+
+export interface CustomerRecord {
+  id: string;
   tenantId: string;
-  actorId: string;
-  customerId: string;
+
+  companyName: string;
+  domain: string;
+  packageCode: string;
+
   status: CustomerStatus;
   websiteBuildStatus: WebsiteBuildStatus;
-  previewUrl?: string;
-  deploymentId?: string;
-  deploymentStatus?: string;
-  deploymentStage?: string | null;
-  liveDomain?: string;
-};
+
+  createdAt: string;
+  updatedAt: string;
+  updatedBy: string;
+
+  templateKey?: string;
+  niche?: string;
+  requestedPrompt?: string;
+
+  base44: Base44Info;
+  deployment?: DeploymentInfo;
+}
