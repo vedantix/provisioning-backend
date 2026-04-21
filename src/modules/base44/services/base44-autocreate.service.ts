@@ -10,19 +10,65 @@ export interface Base44CreateAppInput {
   niche?: string;
 }
 
+export interface Base44CreateAppResult {
+  appId: string;
+  appName: string;
+  editorUrl?: string;
+  previewUrl?: string;
+}
+
 export class Base44AutoCreateService {
   private provider = new Base44Provider();
 
-  async createApp(input: Base44CreateAppInput) {
-    const appName = `${input.companyName}`;
+  async createApp(input: Base44CreateAppInput): Promise<Base44CreateAppResult> {
+    try {
+      const result = await this.provider.createApp({
+        name: input.companyName,
+        prompt: input.prompt,
+        templateKey: input.templateKey,
+        niche: input.niche,
+      });
 
-    const result = await this.provider.createApp({
-      name: appName,
-      prompt: input.prompt,
-      templateKey: input.templateKey,
-      niche: input.niche,
-    });
+      if (!result?.appId) {
+        throw new Error('Base44 did not return an appId');
+      }
 
-    return result;
+      return {
+        appId: result.appId,
+        appName: result.appName ?? input.companyName,
+        editorUrl: result.editorUrl,
+        previewUrl: result.previewUrl,
+      };
+    } catch (error: any) {
+      let message: string = 'Base44 auto-create failed';
+
+      if (error?.response) {
+        const response = error.response;
+        let parsed: any = null;
+
+        try {
+          parsed = response.data;
+        } catch {
+          parsed = null;
+        }
+
+        message = `Base44 auto-create failed with status ${response.status}`;
+
+        if (parsed && typeof parsed === 'object') {
+          const maybeError = parsed.error;
+          const maybeMessage = parsed.message;
+
+          if (typeof maybeError === 'string' && maybeError.trim()) {
+            message = maybeError;
+          } else if (typeof maybeMessage === 'string' && maybeMessage.trim()) {
+            message = maybeMessage;
+          }
+        }
+      } else if (error instanceof Error) {
+        message = error.message;
+      }
+
+      throw new Error(message);
+    }
   }
 }

@@ -1,27 +1,18 @@
 import { CustomersRepository } from '../repositories/customers.repository';
 import { DeploymentTriggerService } from '../../deployment/services/deployment-trigger.service';
+import type {
+  CustomerRecord,
+  LinkBase44AppInput,
+} from '../types/customer.types';
 
 export class CustomerBase44Service {
   private repo = new CustomersRepository();
   private deployService = new DeploymentTriggerService();
 
   async linkExistingApp(
-    customer: any,
-    input: {
-      tenantId: string;
-      customerId: string;
-      actorId: string;
-
-      appId: string;
-      appName: string;
-      editorUrl?: string;
-      previewUrl?: string;
-
-      templateKey?: string;
-      niche?: string;
-      requestedPrompt?: string;
-    },
-  ) {
+    customer: CustomerRecord,
+    input: LinkBase44AppInput,
+  ): Promise<CustomerRecord> {
     const now = new Date().toISOString();
 
     await this.repo.updateBase44Link({
@@ -30,7 +21,7 @@ export class CustomerBase44Service {
       updatedAt: now,
       updatedBy: input.actorId,
 
-      status: 'IN_PROGRESS',
+      status: 'building',
       websiteBuildStatus: 'IN_PROGRESS',
       base44Status: 'READY',
 
@@ -46,12 +37,17 @@ export class CustomerBase44Service {
       linkedAt: now,
     });
 
-    // 🔥 automatische deployment trigger
     await this.deployService.triggerWebsiteBuild({
       bucket: `vedantix-${customer.domain.replace(/\./g, '-')}`,
       distributionId: customer.deployment?.distributionId ?? '',
     });
 
-    return this.repo.getById(input.customerId);
+    const updatedCustomer = await this.repo.getById(input.customerId);
+
+    if (!updatedCustomer) {
+      throw new Error('Customer not found after Base44 link update');
+    }
+
+    return updatedCustomer;
   }
 }
