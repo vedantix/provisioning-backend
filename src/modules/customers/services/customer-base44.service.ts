@@ -1,57 +1,57 @@
-import { env } from '../../../config/env';
 import { CustomersRepository } from '../repositories/customers.repository';
-import type { CustomerRecord, LinkBase44AppInput } from '../types/customer.types';
-
-function slugify(value: string): string {
-  return String(value || '')
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
+import { DeploymentTriggerService } from '../../deployment/services/deployment-trigger.service';
 
 export class CustomerBase44Service {
-  constructor(
-    private readonly customersRepository = new CustomersRepository(),
-  ) {}
+  private repo = new CustomersRepository();
+  private deployService = new DeploymentTriggerService();
 
   async linkExistingApp(
-    customer: CustomerRecord,
-    input: LinkBase44AppInput,
-  ): Promise<CustomerRecord> {
+    customer: any,
+    input: {
+      tenantId: string;
+      customerId: string;
+      actorId: string;
+
+      appId: string;
+      appName: string;
+      editorUrl?: string;
+      previewUrl?: string;
+
+      templateKey?: string;
+      niche?: string;
+      requestedPrompt?: string;
+    },
+  ) {
     const now = new Date().toISOString();
-    const previewSlug = slugify(customer.companyName) || slugify(customer.domain);
 
-    const editorUrl =
-      input.editorUrl?.trim() ||
-      `${env.base44EditorBaseUrl.replace(/\/$/, '')}/${input.appId}`;
-
-    const previewUrl =
-      input.previewUrl?.trim() ||
-      `${env.base44PreviewBaseUrl.replace(/\/$/, '')}/${previewSlug}`;
-
-    await this.customersRepository.updateBase44Link({
-      customerId: customer.id,
+    await this.repo.updateBase44Link({
+      customerId: input.customerId,
+      tenantId: input.tenantId,
       updatedAt: now,
       updatedBy: input.actorId,
-      status: 'building',
-      websiteBuildStatus: 'APP_LINKED',
-      base44Status: 'LINKED',
-      appId: input.appId.trim(),
-      appName: input.appName?.trim() || customer.companyName,
-      editorUrl,
-      previewUrl,
-      templateKey: input.templateKey?.trim(),
-      niche: input.niche?.trim(),
-      requestedPrompt: input.requestedPrompt?.trim(),
+
+      status: 'IN_PROGRESS',
+      websiteBuildStatus: 'IN_PROGRESS',
+      base44Status: 'READY',
+
+      appId: input.appId,
+      appName: input.appName,
+      editorUrl: input.editorUrl,
+      previewUrl: input.previewUrl,
+
+      templateKey: input.templateKey,
+      niche: input.niche,
+      requestedPrompt: input.requestedPrompt,
+
       linkedAt: now,
     });
 
-    const updated = await this.customersRepository.getById(customer.id);
-    if (!updated) {
-      throw new Error('Customer not found after Base44 link update');
-    }
+    // 🔥 automatische deployment trigger
+    await this.deployService.triggerWebsiteBuild({
+      bucket: `vedantix-${customer.domain.replace(/\./g, '-')}`,
+      distributionId: customer.deployment?.distributionId ?? '',
+    });
 
-    return updated;
+    return this.repo.getById(input.customerId);
   }
 }
