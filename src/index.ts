@@ -49,38 +49,36 @@ const allowedOrigins = new Set([
   "http://localhost:5173",
 ]);
 
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (!origin) {
-        callback(null, true);
-        return;
-      }
+const corsMiddleware = cors({
+  origin(origin, callback) {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
 
-      if (allowedOrigins.has(origin)) {
-        callback(null, true);
-        return;
-      }
+    if (allowedOrigins.has(origin)) {
+      callback(null, true);
+      return;
+    }
 
-      callback(new Error(`CORS blocked for origin: ${origin}`));
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "X-Api-Key",
-      "X-Tenant-Id",
-      "X-Actor-Id",
-      "X-Source",
-      "Idempotency-Key",
-      "X-Base44-Webhook-Secret",
-      "X-Webhook-Secret",
-    ],
-  })
-);
+    callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Api-Key",
+    "X-Tenant-Id",
+    "X-Actor-Id",
+    "X-Source",
+    "Idempotency-Key",
+    "X-Base44-Webhook-Secret",
+    "X-Webhook-Secret",
+  ],
+});
 
-app.options("*", cors());
+app.use(corsMiddleware);
 
 app.use(express.json({ limit: env.requestBodyLimit }));
 
@@ -98,7 +96,7 @@ app.use(
   createRateLimitMiddleware({
     windowMs: env.rateLimitWindowMs,
     maxRequests: env.rateLimitMaxRequests,
-  })
+  }),
 );
 
 app.use("/api", pricingRoutes);
