@@ -17,6 +17,7 @@ import deploymentsAuditRoutes from "./routes/deployments-audit.routes";
 import operationsRoutes from "./routes/operations.routes";
 import systemRoutes from "./routes/system.routes";
 import adminOpsRoutes from "./routes/admin-ops.routes";
+import base44Webhook from './modules/base44/routes/base44-autocreate.webhook';
 
 import mailRoutes from "./modules/mail/routes/mail.routes";
 import customerMailRoutes from "./modules/mail/routes/customer-mail.routes";
@@ -129,6 +130,8 @@ app.use("/api", rollbackRoutes);
 
 app.use("/api/mail", mailRoutes);
 app.use("/api/customers", customerMailRoutes);
+
+app.use('/internal', base44Webhook);
 
 app.use(notFoundMiddleware);
 app.use(errorHandlerMiddleware);
