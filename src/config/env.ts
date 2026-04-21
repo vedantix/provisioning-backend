@@ -107,7 +107,7 @@ export const env = {
   adminSessionSecret: optional('ADMIN_SESSION_SECRET', 'vedantix-admin-session-secret-v2-2026-04-21-abc123xyz')!,
   adminSessionTtlHours: numberFromEnv('ADMIN_SESSION_TTL_HOURS', 24),
 
-  isProduction: nodeEnv === 'production',
+  isProduction: nodeEnv === 'production', 
 } as const;
 
 if (!env.githubToken && !env.githubTokenSecretArn) {
