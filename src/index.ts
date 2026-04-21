@@ -30,8 +30,6 @@ import adminAuthRoutes from "./modules/admin-auth/routes/admin-auth.routes";
 import { createRateLimitMiddleware } from "./middleware/rate-limit.middleware";
 import { notFoundMiddleware } from "./middleware/not-found.middleware";
 import { requestContextMiddleware } from "./middleware/request-context.middleware";
-import { requireActorContextMiddleware } from "./middleware/require-actor-context.middleware";
-import { requireAdminAuthMiddleware } from "./middleware/require-admin-auth.middleware";
 import { errorHandlerMiddleware } from "./middleware/error-handler.middleware";
 import { requestLoggingMiddleware } from "./middleware/request-logging.middleware";
 import { idempotencyMiddleware } from "./middleware/idempotency.middleware";
@@ -79,7 +77,6 @@ const corsMiddleware = cors({
 });
 
 app.use(corsMiddleware);
-
 app.use(express.json({ limit: env.requestBodyLimit }));
 
 app.get("/health", (_req, res) => {
@@ -99,15 +96,19 @@ app.use(
   }),
 );
 
+/**
+ * Public / semi-public
+ */
 app.use("/api", pricingRoutes);
 app.use("/api/webhooks", base44WebhookRoutes);
 app.use("/", previewRoutes);
 app.use("/api", adminAuthRoutes);
 
-app.use(requireAdminAuthMiddleware);
-app.use(requireActorContextMiddleware);
-
+/**
+ * Admin routes with route-level auth inside the routers themselves
+ */
 app.use("/api", customersRoutes);
+app.use("/api/finance", financeRoutes);
 
 app.use("/api", deploymentsRoutes);
 app.use("/api", deploymentsRunRoutes);
@@ -128,7 +129,6 @@ app.use("/api", rollbackRoutes);
 
 app.use("/api/mail", mailRoutes);
 app.use("/api/customers", customerMailRoutes);
-app.use("/api/finance", financeRoutes);
 
 app.use(notFoundMiddleware);
 app.use(errorHandlerMiddleware);
