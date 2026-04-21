@@ -47,7 +47,10 @@ export interface PreviewInfo {
   slug?: string;
   path?: string;
   fullUrl?: string;
-  status?: 'PENDING' | 'READY' | 'ARCHIVED';
+  targetUrl?: string;
+  isIndexed?: boolean;
+  isPasswordProtected?: boolean;
+  status?: 'NOT_READY' | 'PENDING' | 'READY' | 'ARCHIVED';
   updatedAt?: string;
 }
 
