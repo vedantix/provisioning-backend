@@ -1,20 +1,29 @@
 import { Router } from "express";
 import { PricingController } from "../controllers/pricing.controller";
-import { apiKeyMiddleware } from "../../../middleware/apiKey.middleware";
+import { requireAdminAuthMiddleware } from "../../../middleware/require-admin-auth.middleware";
 
 const router = Router();
 const controller = new PricingController();
 
 /**
- * 🔓 PUBLIC READ
+ * Public read
  */
 router.get("/pricing", controller.getSummary);
 router.get("/pricing/vat-summary", controller.getVatSummary);
 
 /**
- * 🔐 WRITE (ADMIN)
+ * Admin write
  */
-router.put("/pricing/packages/:code", apiKeyMiddleware, controller.updatePackage);
-router.put("/pricing/addons/:code", apiKeyMiddleware, controller.updateAddon);
+router.put(
+  "/pricing/packages/:code",
+  requireAdminAuthMiddleware,
+  controller.updatePackage
+);
+
+router.put(
+  "/pricing/addons/:code",
+  requireAdminAuthMiddleware,
+  controller.updateAddon
+);
 
 export default router;
