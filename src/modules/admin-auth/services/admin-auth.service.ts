@@ -40,6 +40,14 @@ function sign(value: string): string {
     .replace(/\//g, '_');
 }
 
+function secretFingerprint(): string {
+  return crypto
+    .createHash('sha256')
+    .update(env.adminSessionSecret)
+    .digest('hex')
+    .slice(0, 12);
+}
+
 export class AdminAuthService {
   constructor(
     private readonly adminUsersRepository = new AdminUsersRepository(),
@@ -133,6 +141,13 @@ export class AdminAuthService {
 
     const token = this.createSessionToken(user);
 
+    console.log('[ADMIN_AUTH_LOGIN]', {
+      tenantId: user.tenantId,
+      email: user.email,
+      secretFingerprint: secretFingerprint(),
+      tokenPreview: `${token.slice(0, 24)}...`,
+    });
+
     await this.adminUsersRepository.updateLastLogin(
       user.id,
       new Date().toISOString(),
@@ -183,6 +198,12 @@ export class AdminAuthService {
     const expectedSignature = sign(encodedPayload);
 
     if (signature !== expectedSignature) {
+      console.log('[ADMIN_AUTH_VERIFY_SIGNATURE_MISMATCH]', {
+        secretFingerprint: secretFingerprint(),
+        providedSignature: signature.slice(0, 16),
+        expectedSignature: expectedSignature.slice(0, 16),
+      });
+
       throw new UnauthorizedError('Ongeldige admin sessie');
     }
 

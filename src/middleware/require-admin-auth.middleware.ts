@@ -35,14 +35,23 @@ export function requireAdminAuthMiddleware(
   }
 
   try {
+    console.log('[ADMIN_AUTH_VERIFY_ATTEMPT]', {
+      path: req.path,
+      tenantId: req.header('X-Tenant-Id'),
+      actorId: req.header('X-Actor-Id'),
+      source: req.header('X-Source'),
+      tokenPreview: `${bearerToken.slice(0, 24)}...`,
+    });
+
     adminAuthService.verifySessionToken(bearerToken);
     next();
   } catch (error) {
-    console.error('[ADMIN_AUTH] Token verification failed', {
+    console.error('[ADMIN_AUTH_VERIFY_FAILED]', {
+      path: req.path,
       message: error instanceof Error ? error.message : 'Unknown error',
       hasAuthorizationHeader: Boolean(req.header('Authorization')),
-      actorId: req.header('X-Actor-Id'),
       tenantId: req.header('X-Tenant-Id'),
+      actorId: req.header('X-Actor-Id'),
       source: req.header('X-Source'),
     });
 
