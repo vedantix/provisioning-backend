@@ -55,6 +55,7 @@ export const env = {
   deploymentsTable: required('DEPLOYMENTS_TABLE'),
   jobsTable: required('JOBS_TABLE'),
   financeTable: optional('FINANCE_TABLE', 'vedantix-finance')!,
+  adminUsersTable: optional('ADMIN_USERS_TABLE', 'vedantix-admin-users')!,
 
   allowedRootDomain: optional('ALLOWED_ROOT_DOMAIN', 'vedantix.nl')!,
   structuredLogging: booleanFromEnv('STRUCTURED_LOGGING', true),
@@ -103,7 +104,6 @@ export const env = {
 
   base44ExportWebhookSecret: optional('BASE44_EXPORT_WEBHOOK_SECRET'),
 
-  adminPassword: optional('ADMIN_PASSWORD', 'vedantix-admin')!,
   adminSessionSecret: optional('ADMIN_SESSION_SECRET', 'vedantix-admin-session-secret')!,
   adminSessionTtlHours: numberFromEnv('ADMIN_SESSION_TTL_HOURS', 24),
 
