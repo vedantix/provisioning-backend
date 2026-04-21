@@ -17,30 +17,39 @@ export interface Base44CreateAppResult {
 export class Base44Provider {
   private readonly apiKey = process.env.BASE44_API_KEY!;
   private readonly baseUrl =
-    process.env.BASE44_API_URL ?? 'https://api.base44.com';
+    (process.env.BASE44_API_URL ?? '').replace(/\/$/, '');
 
   async createApp(
     payload: Base44CreateAppPayload,
   ): Promise<Base44CreateAppResult> {
-    const response = await axios.post(
-      `${this.baseUrl}/apps`,
-      payload,
-      {
+    const url = `${this.baseUrl}/apps`;
+
+    try {
+      const response = await axios.post(url, payload, {
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',
         },
         timeout: 15000,
-      },
-    );
+      });
 
-    const data = response.data;
+      const data = response.data;
 
-    return {
-      appId: data.id,
-      appName: data.name,
-      editorUrl: data.editorUrl,
-      previewUrl: data.previewUrl,
-    };
+      return {
+        appId: data.id ?? data.appId,
+        appName: data.name ?? data.appName ?? payload.name,
+        editorUrl: data.editorUrl,
+        previewUrl: data.previewUrl,
+      };
+    } catch (error: any) {
+      console.error('[BASE44_PROVIDER_ERROR]', {
+        url,
+        status: error?.response?.status,
+        data: error?.response?.data,
+        message: error?.message,
+      });
+
+      throw error;
+    }
   }
 }
