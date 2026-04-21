@@ -13,20 +13,19 @@ const client = new DynamoDBClient({});
 const ddb = DynamoDBDocumentClient.from(client);
 const TABLE_NAME = env.customersTable;
 
-type StoredCustomerRecord = CustomerRecord & { pk: string };
+type StoredCustomerRecord = CustomerRecord;
 
 export class CustomersRepository {
   async create(customer: CustomerRecord): Promise<void> {
     const item: StoredCustomerRecord = {
       ...customer,
-      pk: customer.id,
     };
 
     await ddb.send(
       new PutCommand({
         TableName: TABLE_NAME,
         Item: item,
-        ConditionExpression: 'attribute_not_exists(pk)',
+        ConditionExpression: 'attribute_not_exists(id)',
       }),
     );
   }
@@ -39,7 +38,7 @@ export class CustomersRepository {
     const result = await ddb.send(
       new GetCommand({
         TableName: TABLE_NAME,
-        Key: { pk: customerId },
+        Key: { id: customerId },
       }),
     );
 
@@ -65,7 +64,6 @@ export class CustomersRepository {
   async update(customer: CustomerRecord): Promise<void> {
     const item: StoredCustomerRecord = {
       ...customer,
-      pk: customer.id,
     };
 
     await ddb.send(
@@ -84,23 +82,19 @@ export class CustomersRepository {
     status: CustomerRecord['status'];
     websiteBuildStatus: CustomerRecord['websiteBuildStatus'];
     base44Status: CustomerRecord['base44']['status'];
-
     appId: string;
     appName?: string;
     editorUrl?: string;
     previewUrl?: string;
-
     templateKey?: string;
     niche?: string;
     requestedPrompt?: string;
-
     linkedAt: string;
   }): Promise<void> {
     await ddb.send(
       new UpdateCommand({
         TableName: TABLE_NAME,
-        Key: { pk: params.customerId },
-
+        Key: { id: params.customerId },
         UpdateExpression: `
           SET
             #status = :status,
@@ -119,12 +113,10 @@ export class CustomersRepository {
             base44.requestedPrompt = :requestedPrompt,
             base44.linkedAt = :linkedAt
         `,
-
         ExpressionAttributeNames: {
           '#status': 'status',
           '#base44Status': 'status',
         },
-
         ExpressionAttributeValues: {
           ':status': params.status,
           ':websiteBuildStatus': params.websiteBuildStatus,
@@ -137,12 +129,56 @@ export class CustomersRepository {
           ':appName': params.appName ?? null,
           ':editorUrl': params.editorUrl ?? null,
           ':previewUrl': params.previewUrl ?? null,
-
           ':templateKey': params.templateKey ?? null,
           ':niche': params.niche ?? null,
           ':requestedPrompt': params.requestedPrompt ?? null,
-
           ':linkedAt': params.linkedAt,
+        },
+      }),
+    );
+  }
+
+  async updateWorkflowState(params: {
+    customerId: string;
+    updatedAt: string;
+    updatedBy: string;
+    status: CustomerRecord['status'];
+    websiteBuildStatus: CustomerRecord['websiteBuildStatus'];
+    previewUrl?: string;
+    deploymentId?: string;
+    deploymentStatus?: string;
+    deploymentStage?: string | null;
+    liveDomain?: string;
+  }): Promise<void> {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: TABLE_NAME,
+        Key: { id: params.customerId },
+        UpdateExpression: `
+          SET
+            #status = :status,
+            websiteBuildStatus = :websiteBuildStatus,
+            updatedAt = :updatedAt,
+            updatedBy = :updatedBy,
+            base44.previewUrl = :previewUrl,
+            deployment.deploymentId = :deploymentId,
+            deployment.status = :deploymentStatus,
+            deployment.currentStage = :deploymentStage,
+            deployment.liveDomain = :liveDomain
+        `,
+        ExpressionAttributeNames: {
+          '#status': 'status',
+        },
+        ExpressionAttributeValues: {
+          ':status': params.status,
+          ':websiteBuildStatus': params.websiteBuildStatus,
+          ':updatedAt': params.updatedAt,
+          ':updatedBy': params.updatedBy,
+          ':previewUrl': params.previewUrl ?? null,
+          ':deploymentId': params.deploymentId ?? null,
+          ':deploymentStatus': params.deploymentStatus ?? null,
+          ':deploymentStage': params.deploymentStage ?? null,
+          ':liveDomain': params.liveDomain ?? null,
         },
       }),
     );
