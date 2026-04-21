@@ -1,9 +1,14 @@
 import { Router } from 'express';
 import { CustomersController } from '../controllers/customers.controller';
 import { asyncHandler } from '../../../middleware/async-handler';
+import { requireAdminAuthMiddleware } from '../../../middleware/require-admin-auth.middleware';
+import { requireActorContextMiddleware } from '../../../middleware/require-actor-context.middleware';
 
 const router = Router();
 const controller = new CustomersController();
+
+router.use(requireAdminAuthMiddleware);
+router.use(requireActorContextMiddleware);
 
 router.post('/customers', asyncHandler(controller.createCustomer));
 router.get('/customers', asyncHandler(controller.listCustomers));
