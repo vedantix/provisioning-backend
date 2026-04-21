@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { AdminAuthService } from '../services/admin-auth.service';
 import { env } from '../../../config/env';
 import { UnauthorizedError } from '../../../errors/app-error';
+import { requireAdminAuthMiddleware } from '../../../middleware/require-admin-auth.middleware';
 
 const router = Router();
 const adminAuthService = new AdminAuthService();
@@ -48,5 +49,21 @@ router.post('/admin/auth/login', async (req: Request, res: Response) => {
     requestId: req.ctx?.requestId,
   });
 });
+
+router.get(
+  '/admin/auth/verify',
+  requireAdminAuthMiddleware,
+  async (req: Request, res: Response) => {
+    res.status(200).json({
+      data: {
+        ok: true,
+        tenantId: req.ctx.tenantId,
+        actorId: req.ctx.actorId,
+        source: req.ctx.source,
+      },
+      requestId: req.ctx?.requestId,
+    });
+  },
+);
 
 export default router;

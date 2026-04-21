@@ -21,12 +21,14 @@ export function requireAdminAuthMiddleware(
   next: NextFunction,
 ) {
   const providedApiKey = String(req.header('X-Api-Key') || '').trim();
+
   if (providedApiKey && providedApiKey === env.provisioningApiKey) {
     next();
     return;
   }
 
   const bearerToken = readBearerToken(req);
+
   if (!bearerToken) {
     next(new UnauthorizedError('Missing admin authorization'));
     return;
@@ -36,6 +38,14 @@ export function requireAdminAuthMiddleware(
     adminAuthService.verifySessionToken(bearerToken);
     next();
   } catch (error) {
+    console.error('[ADMIN_AUTH] Token verification failed', {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      hasAuthorizationHeader: Boolean(req.header('Authorization')),
+      actorId: req.header('X-Actor-Id'),
+      tenantId: req.header('X-Tenant-Id'),
+      source: req.header('X-Source'),
+    });
+
     next(error);
   }
 }
