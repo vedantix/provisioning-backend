@@ -1,4 +1,5 @@
 import express from "express";
+import cors from "cors";
 
 import deploymentRoutes from "./routes/deployment.routes";
 import domainRoutes from "./routes/domain.routes";
@@ -40,8 +41,6 @@ import { logger } from "./lib/logger";
 
 const app = express();
 
-console.log("BOOT_MARKER_OPTIONS_V4");
-
 const allowedOrigins = new Set([
   "https://vedantix.nl",
   "https://www.vedantix.nl",
@@ -50,28 +49,38 @@ const allowedOrigins = new Set([
   "http://localhost:5173",
 ]);
 
-app.use((req, res, next) => {
-  const origin = String(req.headers.origin || "");
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
 
-  if (allowedOrigins.has(origin)) {
-    res.header("Access-Control-Allow-Origin", origin);
-  }
+      if (allowedOrigins.has(origin)) {
+        callback(null, true);
+        return;
+      }
 
-  res.header("Vary", "Origin");
-  res.header("Access-Control-Allow-Credentials", "true");
-  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, X-Api-Key, X-Tenant-Id, X-Actor-Id, X-Source, Idempotency-Key, X-Base44-Webhook-Secret, X-Webhook-Secret",
-  );
+      callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Api-Key",
+      "X-Tenant-Id",
+      "X-Actor-Id",
+      "X-Source",
+      "Idempotency-Key",
+      "X-Base44-Webhook-Secret",
+      "X-Webhook-Secret",
+    ],
+  })
+);
 
-  if (req.method === "OPTIONS") {
-    console.log("OPTIONS_HIT", req.originalUrl);
-    return res.sendStatus(200);
-  }
-
-  next();
-});
+app.options("*", cors());
 
 app.use(express.json({ limit: env.requestBodyLimit }));
 
@@ -89,7 +98,7 @@ app.use(
   createRateLimitMiddleware({
     windowMs: env.rateLimitWindowMs,
     maxRequests: env.rateLimitMaxRequests,
-  }),
+  })
 );
 
 app.use("/api", pricingRoutes);
