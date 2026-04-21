@@ -12,7 +12,6 @@ import { ConflictHttpError } from '../../../errors/app-error';
 import { MailProvisioningService } from '../../mail/services/mail-provisioning.service';
 import { FinanceService } from '../../finance/services/finance.service';
 import type { PackageCode } from '../../mail/types/mail.types';
-import { Base44AutoCreateService } from '../../base44/services/base44-autocreate.service';
 import { ContentSyncService } from '../../content-sync/services/content-sync.service';
 import { CustomerBuildFlowService } from '../../customer-workflow/services/customer-build-flow.service';
 
@@ -128,7 +127,6 @@ export class CustomersController {
     private readonly operationsRepository = new OperationsRepository(),
     private readonly mailProvisioningService = new MailProvisioningService(),
     private readonly financeService = new FinanceService(),
-    private readonly base44AutoCreateService = new Base44AutoCreateService(),
     private readonly contentSyncService = new ContentSyncService(),
     private readonly customerBuildFlowService = new CustomerBuildFlowService(),
   ) {}
@@ -153,6 +151,9 @@ export class CustomersController {
       monthlyInfraCostInclVat: req.body.monthlyInfraCostInclVat,
       oneTimeSetupInclVat: req.body.oneTimeSetupInclVat,
       vatRate: req.body.vatRate,
+      templateKey: req.body.templateKey,
+      niche: req.body.niche,
+      requestedPrompt: req.body.requestedPrompt,
     });
 
     res.status(201).json({
@@ -256,24 +257,10 @@ export class CustomersController {
         extras: customer.extras,
       });
 
-    const createdApp = await this.base44AutoCreateService.createApp({
-      customerId: customer.id,
-      companyName: customer.companyName,
-      domain: customer.domain,
-      packageCode: customer.packageCode,
-      niche: req.body.niche,
-      templateKey: req.body.templateKey,
-      prompt,
-    });
-
-    const updated = await this.customerBase44Service.linkExistingApp(customer, {
+    const updated = await this.customerBase44Service.requestAppCreation(customer, {
       tenantId: req.ctx.tenantId,
       actorId: req.ctx.actorId,
       customerId,
-      appId: createdApp.appId,
-      appName: createdApp.appName,
-      editorUrl: createdApp.editorUrl,
-      previewUrl: createdApp.previewUrl,
       templateKey: req.body.templateKey,
       niche: req.body.niche,
       requestedPrompt: prompt,
@@ -287,12 +274,12 @@ export class CustomersController {
 
   updateCustomer = async (req: Request, res: Response): Promise<void> => {
     const customerId = getSingleParam(req.params.customerId, 'customerId');
-  
+
     const existing = await this.customersService.getCustomerById(
       req.ctx.tenantId,
       customerId,
     );
-  
+
     if (!existing) {
       res.status(404).json({
         error: 'Customer not found',
@@ -300,28 +287,28 @@ export class CustomersController {
       });
       return;
     }
-  
+
     const updated = await this.customersService.updateCustomer({
       tenantId: req.ctx.tenantId,
       actorId: req.ctx.actorId,
       customerId,
       payload: req.body,
     });
-  
+
     res.status(200).json({
       data: updated,
       requestId: req.ctx.requestId,
     });
   };
-  
+
   deleteCustomer = async (req: Request, res: Response): Promise<void> => {
     const customerId = getSingleParam(req.params.customerId, 'customerId');
-  
+
     const existing = await this.customersService.getCustomerById(
       req.ctx.tenantId,
       customerId,
     );
-  
+
     if (!existing) {
       res.status(404).json({
         error: 'Customer not found',
@@ -329,13 +316,13 @@ export class CustomersController {
       });
       return;
     }
-  
+
     const updated = await this.customersService.softDeleteCustomer({
       tenantId: req.ctx.tenantId,
       actorId: req.ctx.actorId,
       customerId,
     });
-  
+
     res.status(200).json({
       data: updated,
       requestId: req.ctx.requestId,

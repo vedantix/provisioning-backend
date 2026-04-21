@@ -1,5 +1,4 @@
 import { CustomersRepository } from '../repositories/customers.repository';
-import { DeploymentTriggerService } from '../../deployment/services/deployment-trigger.service';
 import type {
   CustomerRecord,
   LinkBase44AppInput,
@@ -7,7 +6,47 @@ import type {
 
 export class CustomerBase44Service {
   private repo = new CustomersRepository();
-  private deployService = new DeploymentTriggerService();
+
+  async requestAppCreation(
+    customer: CustomerRecord,
+    input: {
+      tenantId: string;
+      customerId: string;
+      actorId: string;
+      templateKey?: string;
+      niche?: string;
+      requestedPrompt: string;
+    },
+  ): Promise<CustomerRecord> {
+    const now = new Date().toISOString();
+
+    const updatedCustomer: CustomerRecord = {
+      ...customer,
+      status: 'building',
+      websiteBuildStatus: 'APP_REQUESTED',
+      updatedAt: now,
+      updatedBy: input.actorId,
+      templateKey: input.templateKey ?? customer.templateKey,
+      niche: input.niche ?? customer.niche,
+      requestedPrompt: input.requestedPrompt,
+      base44: {
+        ...customer.base44,
+        status: 'CREATING',
+        templateKey: input.templateKey ?? customer.base44?.templateKey,
+        niche: input.niche ?? customer.base44?.niche,
+        requestedPrompt: input.requestedPrompt,
+      },
+    };
+
+    await this.repo.update(updatedCustomer);
+
+    const refreshed = await this.repo.getById(input.customerId);
+    if (!refreshed) {
+      throw new Error('Customer not found after Base44 build request update');
+    }
+
+    return refreshed;
+  }
 
   async linkExistingApp(
     customer: CustomerRecord,
@@ -22,8 +61,8 @@ export class CustomerBase44Service {
       updatedBy: input.actorId,
 
       status: 'building',
-      websiteBuildStatus: 'IN_PROGRESS',
-      base44Status: 'READY',
+      websiteBuildStatus: 'APP_LINKED',
+      base44Status: 'LINKED',
 
       appId: input.appId,
       appName: input.appName,
@@ -35,11 +74,6 @@ export class CustomerBase44Service {
       requestedPrompt: input.requestedPrompt,
 
       linkedAt: now,
-    });
-
-    await this.deployService.triggerWebsiteBuild({
-      bucket: `vedantix-${customer.domain.replace(/\./g, '-')}`,
-      distributionId: customer.deployment?.distributionId ?? '',
     });
 
     const updatedCustomer = await this.repo.getById(input.customerId);
