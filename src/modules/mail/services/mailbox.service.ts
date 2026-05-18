@@ -1,6 +1,6 @@
 import { MailboxesRepository } from '../repositories/mailboxes.repository';
 import { MailDomainService } from './mail-domain.service';
-import { ZohoMailProvider } from '../providers/zoho-mail.provider';
+import { createMailProvider } from '../providers/provider.factory';
 import type {
   CreateMailboxInput,
   DeleteMailboxInput,
@@ -13,7 +13,7 @@ export class MailboxService {
   constructor(
     private readonly mailboxesRepository = new MailboxesRepository(),
     private readonly mailDomainService = new MailDomainService(),
-    private readonly mailProvider = new ZohoMailProvider(),
+    private readonly mailProvider = createMailProvider(),
   ) {}
 
   async createMailbox(input: CreateMailboxInput): Promise<MailboxRecord> {
