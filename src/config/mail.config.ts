@@ -21,15 +21,11 @@ function optionalNumber(value: number | string | undefined, fallback: number): n
 }
 
 export const mailConfig = {
-  provider: (env.mailProvider || 'ZOHO').toUpperCase(),
-  zoho: {
-    apiBaseUrl: env.zohoApiBaseUrl || 'https://mail.zoho.com/api',
-    accountsBaseUrl: env.zohoAccountsBaseUrl || 'https://accounts.zoho.com',
-    clientId: required('ZOHO_CLIENT_ID', env.zohoClientId),
-    clientSecret: required('ZOHO_CLIENT_SECRET', env.zohoClientSecret),
-    refreshToken: required('ZOHO_REFRESH_TOKEN', env.zohoRefreshToken),
-    organizationId: required('ZOHO_ORGANIZATION_ID', env.zohoOrganizationId),
-    tokenTimeoutMs: optionalNumber(env.zohoTokenTimeoutMs, 15000),
-    requestTimeoutMs: optionalNumber(env.zohoRequestTimeoutMs, 20000),
+  provider: 'MIGADU',
+  migadu: {
+    apiBaseUrl: env.migaduApiBaseUrl || 'https://admin.migadu.com/api/v1',
+    username: required('MIGADU_USERNAME', env.migaduUsername),
+    password: required('MIGADU_PASSWORD', env.migaduPassword),
+    requestTimeoutMs: optionalNumber(env.migaduRequestTimeoutMs, 20000),
   },
 } as const;
