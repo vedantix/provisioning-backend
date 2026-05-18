@@ -20,7 +20,7 @@ export type BillingState =
   | 'SUSPENDED_NON_PAYMENT'
   | 'CANCELLED';
 
-export type PackageCode = 'STARTER' | 'GROWTH' | 'PRO';
+export type PackageCode = 'STARTER' | 'GROWTH' | 'PRO' | 'CUSTOM';
 
 export interface MailDomainRecord {
   id: string;
@@ -99,6 +99,7 @@ export interface ProvisionPackageMailInput {
   customerId: string;
   domain: string;
   packageCode: PackageCode;
+  selectedMailboxes?: string[];
 }
 
 export interface ProviderDnsRecord {
@@ -146,6 +147,16 @@ export interface MailPackageRule {
   includedMailboxes: number;
   defaultMailboxes: string[];
   defaultStorageGb: number;
+  extraMailboxPricePerMonth: number;
+}
+
+export interface MailboxUsageResponse {
+  packageCode: PackageCode;
+  includedMailboxes: number;
+  usedMailboxes: number;
+  remainingMailboxes: number;
+  extraMailboxPricePerMonth: number;
+  suggestedMailboxes: string[];
 }
 
 export interface ApiErrorLike {
