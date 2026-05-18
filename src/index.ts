@@ -16,10 +16,10 @@ import deploymentsRollbackRoutes from "./routes/deployments-rollback.routes";
 import deploymentsAuditRoutes from "./routes/deployments-audit.routes";
 import operationsRoutes from "./routes/operations.routes";
 import systemRoutes from "./routes/system.routes";
+import readinessRoutes from "./modules/system/routes/readiness.routes";
 import adminOpsRoutes from "./routes/admin-ops.routes";
 import base44Webhook from './modules/base44/routes/base44-autocreate.webhook';
 import customerBase44Routes from './modules/customers/routes/customer-base44.routes';
-
 
 import mailRoutes from "./modules/mail/routes/mail.routes";
 import customerMailRoutes from "./modules/mail/routes/customer-mail.routes";
@@ -86,6 +86,7 @@ app.get("/health", (_req, res) => {
   res.status(200).json({ ok: true });
 });
 
+app.use(readinessRoutes);
 app.use(systemRoutes);
 
 app.use(requestContextMiddleware);
@@ -99,17 +100,11 @@ app.use(
   }),
 );
 
-/**
- * Public / semi-public
- */
 app.use("/api", pricingRoutes);
 app.use("/api/webhooks", base44WebhookRoutes);
 app.use("/", previewRoutes);
 app.use("/api", adminAuthRoutes);
 
-/**
- * Admin routes with route-level auth inside the routers themselves
- */
 app.use("/api", customersRoutes);
 app.use("/api/finance", financeRoutes);
 
