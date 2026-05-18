@@ -1,4 +1,4 @@
-export type MailProviderCode = 'ZOHO';
+export type MailProviderCode = 'MIGADU';
 
 export type MailDomainStatus =
   | 'PENDING'
