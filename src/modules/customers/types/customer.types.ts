@@ -104,6 +104,9 @@ export interface CreateCustomerInput {
   templateKey?: string;
   niche?: string;
   requestedPrompt?: string;
+  selectedMailboxLocalParts?: string[];
+  includedMailboxes?: number;
+  extraMailboxes?: number;
 }
 
 export interface LinkBase44AppInput {
@@ -136,6 +139,10 @@ export interface CustomerRecord {
   postalCode?: string;
   city?: string;
   country?: string;
+
+  selectedMailboxLocalParts?: string[];
+  includedMailboxes?: number;
+  extraMailboxes?: number;
 
   status: CustomerStatus;
   websiteBuildStatus: WebsiteBuildStatus;
