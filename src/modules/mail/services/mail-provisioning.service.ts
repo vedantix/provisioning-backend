@@ -23,6 +23,20 @@ export class MailProvisioningService {
   ): Promise<ProvisionPackageMailResult> {
     const rule = getMailPackageRule(input.packageCode);
 
+    const requestedMailboxes =
+      input.selectedMailboxes && input.selectedMailboxes.length > 0
+        ? input.selectedMailboxes
+        : rule.defaultMailboxes;
+
+    if (
+      rule.includedMailboxes !== Number.MAX_SAFE_INTEGER &&
+      requestedMailboxes.length > rule.includedMailboxes
+    ) {
+      throw new Error(
+        `[MAIL_PROVISIONING] Package ${input.packageCode} allows a maximum of ${rule.includedMailboxes} mailboxes.`,
+      );
+    }
+
     const mailDomain = await this.mailDomainService.createDomain({
       customerId: input.customerId,
       domain: input.domain,
@@ -31,12 +45,21 @@ export class MailProvisioningService {
 
     const mailboxes: MailboxRecord[] = [];
 
-    for (const localPart of rule.defaultMailboxes) {
+    for (const localPart of requestedMailboxes) {
+      const normalizedLocalPart = localPart.trim().toLowerCase();
+
+      if (!normalizedLocalPart) {
+        continue;
+      }
+
       const mailbox = await this.mailboxService.createMailbox({
         customerId: input.customerId,
         mailDomainId: mailDomain.id,
-        localPart,
-        displayName: this.buildDefaultDisplayName(localPart, input.domain),
+        localPart: normalizedLocalPart,
+        displayName: this.buildDefaultDisplayName(
+          normalizedLocalPart,
+          input.domain,
+        ),
         includedStorageGb: rule.defaultStorageGb,
         extraStorageGb: 0,
       });
