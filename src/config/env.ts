@@ -35,6 +35,7 @@ function numberFromEnv(name: string, fallback: number): number {
 }
 
 const nodeEnv = optional('NODE_ENV', 'development')!;
+const DEFAULT_ADMIN_SESSION_SECRET = 'vedantix-admin-session-secret-v2-2026-04-21-abc123xyz';
 
 export const env = {
   nodeEnv,
@@ -97,7 +98,7 @@ export const env = {
 
   base44ExportWebhookSecret: optional('BASE44_EXPORT_WEBHOOK_SECRET'),
 
-  adminSessionSecret: optional('ADMIN_SESSION_SECRET', 'vedantix-admin-session-secret-v2-2026-04-21-abc123xyz')!,
+  adminSessionSecret: optional('ADMIN_SESSION_SECRET', DEFAULT_ADMIN_SESSION_SECRET)!,
   adminSessionTtlHours: numberFromEnv('ADMIN_SESSION_TTL_HOURS', 24),
 
   isProduction: nodeEnv === 'production',
@@ -115,4 +116,18 @@ if (!env.migaduUsername) {
 
 if (!env.migaduPassword) {
   throw new Error('Missing required env var for Migadu mail: MIGADU_PASSWORD');
+}
+
+if (env.isProduction) {
+  if (!env.adminSessionSecret || env.adminSessionSecret === DEFAULT_ADMIN_SESSION_SECRET) {
+    throw new Error(
+      'ADMIN_SESSION_SECRET must be set to a unique secret in production.',
+    );
+  }
+
+  if (env.adminSessionSecret.length < 32) {
+    throw new Error(
+      'ADMIN_SESSION_SECRET must contain at least 32 characters in production.',
+    );
+  }
 }
