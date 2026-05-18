@@ -26,7 +26,7 @@ export class MailController {
     const result = await this.mailDomainService.createDomain({
       customerId: req.body.customerId ?? null,
       domain: req.body.domain,
-      provider: 'ZOHO',
+      provider: 'MIGADU',
     });
 
     res.status(201).json(result);
