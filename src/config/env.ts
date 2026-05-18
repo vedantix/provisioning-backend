@@ -81,18 +81,11 @@ export const env = {
   alertsEnabled: booleanFromEnv('ALERTS_ENABLED', false),
   alertTopicArn: optional('ALERT_TOPIC_ARN'),
 
-  mailProvider: optional('MAIL_PROVIDER', 'ZOHO')!,
-  zohoApiBaseUrl: optional('ZOHO_API_BASE_URL', 'https://mail.zoho.com/api')!,
-  zohoAccountsBaseUrl: optional(
-    'ZOHO_ACCOUNTS_BASE_URL',
-    'https://accounts.zoho.com',
-  )!,
-  zohoClientId: optional('ZOHO_CLIENT_ID'),
-  zohoClientSecret: optional('ZOHO_CLIENT_SECRET'),
-  zohoRefreshToken: optional('ZOHO_REFRESH_TOKEN'),
-  zohoOrganizationId: optional('ZOHO_ORGANIZATION_ID'),
-  zohoTokenTimeoutMs: numberFromEnv('ZOHO_TOKEN_TIMEOUT_MS', 15_000),
-  zohoRequestTimeoutMs: numberFromEnv('ZOHO_REQUEST_TIMEOUT_MS', 20_000),
+  mailProvider: optional('MAIL_PROVIDER', 'MIGADU')!,
+  migaduApiBaseUrl: optional('MIGADU_API_BASE_URL', 'https://admin.migadu.com/api/v1')!,
+  migaduUsername: optional('MIGADU_USERNAME'),
+  migaduPassword: optional('MIGADU_PASSWORD'),
+  migaduRequestTimeoutMs: numberFromEnv('MIGADU_REQUEST_TIMEOUT_MS', 20_000),
 
   base44EditorBaseUrl: optional('BASE44_EDITOR_BASE_URL', 'https://app.base44.com/apps')!,
   base44PreviewBaseUrl: optional('BASE44_PREVIEW_BASE_URL', 'https://preview.vedantix.nl')!,
@@ -107,7 +100,7 @@ export const env = {
   adminSessionSecret: optional('ADMIN_SESSION_SECRET', 'vedantix-admin-session-secret-v2-2026-04-21-abc123xyz')!,
   adminSessionTtlHours: numberFromEnv('ADMIN_SESSION_TTL_HOURS', 24),
 
-  isProduction: nodeEnv === 'production', 
+  isProduction: nodeEnv === 'production',
 } as const;
 
 if (!env.githubToken && !env.githubTokenSecretArn) {
@@ -116,20 +109,10 @@ if (!env.githubToken && !env.githubTokenSecretArn) {
   );
 }
 
-if (env.mailProvider === 'ZOHO') {
-  if (!env.zohoClientId) {
-    throw new Error('Missing required env var for Zoho mail: ZOHO_CLIENT_ID');
-  }
+if (!env.migaduUsername) {
+  throw new Error('Missing required env var for Migadu mail: MIGADU_USERNAME');
+}
 
-  if (!env.zohoClientSecret) {
-    throw new Error('Missing required env var for Zoho mail: ZOHO_CLIENT_SECRET');
-  }
-
-  if (!env.zohoRefreshToken) {
-    throw new Error('Missing required env var for Zoho mail: ZOHO_REFRESH_TOKEN');
-  }
-
-  if (!env.zohoOrganizationId) {
-    throw new Error('Missing required env var for Zoho mail: ZOHO_ORGANIZATION_ID');
-  }
+if (!env.migaduPassword) {
+  throw new Error('Missing required env var for Migadu mail: MIGADU_PASSWORD');
 }
