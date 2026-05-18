@@ -26,7 +26,7 @@ export class MailProvisioningService {
     const mailDomain = await this.mailDomainService.createDomain({
       customerId: input.customerId,
       domain: input.domain,
-      provider: 'ZOHO',
+      provider: 'MIGADU',
     });
 
     const mailboxes: MailboxRecord[] = [];
