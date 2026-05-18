@@ -2,6 +2,8 @@ import type { Request, Response } from 'express';
 import { MailDomainService } from '../services/mail-domain.service';
 import { MailboxService } from '../services/mailbox.service';
 import { MailProvisioningService } from '../services/mail-provisioning.service';
+import { MailboxUsageService } from '../services/mailbox-usage.service';
+import type { PackageCode } from '../types/mail.types';
 
 function getSingleParam(value: string | string[] | undefined, name: string): string {
   if (typeof value === 'string' && value.trim()) {
@@ -20,6 +22,7 @@ export class MailController {
     private readonly mailDomainService = new MailDomainService(),
     private readonly mailboxService = new MailboxService(),
     private readonly mailProvisioningService = new MailProvisioningService(),
+    private readonly mailboxUsageService = new MailboxUsageService(),
   ) {}
 
   createDomain = async (req: Request, res: Response): Promise<void> => {
@@ -101,8 +104,21 @@ export class MailController {
       customerId,
       domain: req.body.domain,
       packageCode: req.body.packageCode,
+      selectedMailboxes: req.body.selectedMailboxes,
     });
 
     res.status(201).json(result);
+  };
+
+  getMailboxUsage = async (req: Request, res: Response): Promise<void> => {
+    const customerId = getSingleParam(req.params.customerId, 'customerId');
+    const packageCode = String(req.query.packageCode || 'STARTER') as PackageCode;
+
+    const result = await this.mailboxUsageService.getUsage(
+      customerId,
+      packageCode,
+    );
+
+    res.status(200).json(result);
   };
 }
