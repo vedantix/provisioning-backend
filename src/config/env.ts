@@ -16,6 +16,16 @@ function optional(name: string, fallback?: string): string | undefined {
   return fallback;
 }
 
+function csvFromEnv(name: string, fallback: string[]): string[] {
+  const value = process.env[name]?.trim();
+  if (!value) return fallback;
+
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function booleanFromEnv(name: string, fallback: boolean): boolean {
   const value = process.env[name]?.trim().toLowerCase();
   if (!value) return fallback;
@@ -59,6 +69,13 @@ export const env = {
   adminUsersTable: optional('ADMIN_USERS_TABLE', 'vedantix-admin-users')!,
 
   allowedRootDomain: optional('ALLOWED_ROOT_DOMAIN', 'vedantix.nl')!,
+  corsAllowedOrigins: csvFromEnv('CORS_ALLOWED_ORIGINS', [
+    'https://vedantix.nl',
+    'https://www.vedantix.nl',
+    'https://api.vedantix.nl',
+    'https://preview.vedantix.nl',
+    'http://localhost:5173',
+  ]),
   structuredLogging: booleanFromEnv('STRUCTURED_LOGGING', true),
   logLevel: optional('LOG_LEVEL', 'info')!,
   prettyLogs: booleanFromEnv('PRETTY_LOGS', false),

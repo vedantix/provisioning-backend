@@ -35,14 +35,6 @@ export function requireAdminAuthMiddleware(
   }
 
   try {
-    console.log('[ADMIN_AUTH_VERIFY_ATTEMPT]', {
-      path: req.path,
-      tenantId: req.header('X-Tenant-Id'),
-      actorId: req.header('X-Actor-Id'),
-      source: req.header('X-Source'),
-      tokenPreview: `${bearerToken.slice(0, 24)}...`,
-    });
-
     adminAuthService.verifySessionToken(bearerToken);
     next();
   } catch (error) {

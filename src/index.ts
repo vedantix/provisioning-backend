@@ -42,13 +42,16 @@ import { logger } from "./lib/logger";
 
 const app = express();
 
-const allowedOrigins = new Set([
-  "https://vedantix.nl",
-  "https://www.vedantix.nl",
-  "https://api.vedantix.nl",
-  "https://preview.vedantix.nl",
-  "http://localhost:5173",
-]);
+const allowedOrigins = new Set(env.corsAllowedOrigins);
+
+app.disable("x-powered-by");
+
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  next();
+});
 
 const corsMiddleware = cors({
   origin(origin, callback) {
