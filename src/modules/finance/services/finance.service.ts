@@ -60,14 +60,39 @@ export class FinanceService {
     companyName: string;
     packageCode: string;
     extras?: string[];
+    monthlyRevenue?: number;
     monthlyInfraCost?: number;
     oneTimeSetupCost?: number;
+    stripeCustomerId?: string;
+    stripeSubscriptionId?: string;
+    subscriptionStatus?: string;
+    paymentStatus?: string;
     isActive?: boolean;
   }): Promise<CustomerFinanceRecord> {
     const now = new Date().toISOString();
     const existing = await this.financeRepository.getCustomerFinance(
       input.tenantId,
       input.customerId,
+    );
+    const monthlyRevenue =
+      input.monthlyRevenue === undefined || input.monthlyRevenue === null
+        ? this.pricingService.getMonthlyRevenue(
+            input.packageCode,
+            input.extras ?? [],
+          )
+        : Number(input.monthlyRevenue);
+    const stripeCustomerId =
+      input.stripeCustomerId?.trim() || existing?.stripeCustomerId;
+    const stripeSubscriptionId =
+      input.stripeSubscriptionId?.trim() || existing?.stripeSubscriptionId;
+    const subscriptionStatus =
+      input.subscriptionStatus?.trim() || existing?.subscriptionStatus;
+    const paymentStatus = input.paymentStatus?.trim() || existing?.paymentStatus;
+    const hasBillingSnapshot = Boolean(
+      stripeCustomerId ||
+        stripeSubscriptionId ||
+        subscriptionStatus ||
+        paymentStatus,
     );
 
     const record: CustomerFinanceRecord = {
@@ -77,16 +102,20 @@ export class FinanceService {
       companyName: input.companyName,
       packageCode: input.packageCode,
       extras: input.extras ?? [],
-      monthlyRevenue: this.pricingService.getMonthlyRevenue(
-        input.packageCode,
-        input.extras ?? [],
-      ),
+      monthlyRevenue,
       monthlyInfraCost: Number(input.monthlyInfraCost ?? 0),
       oneTimeSetupCost: Number(input.oneTimeSetupCost ?? 0),
       isActive: input.isActive ?? true,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
+
+    if (stripeCustomerId) record.stripeCustomerId = stripeCustomerId;
+    if (stripeSubscriptionId) record.stripeSubscriptionId = stripeSubscriptionId;
+    if (subscriptionStatus) record.subscriptionStatus = subscriptionStatus;
+    if (paymentStatus) record.paymentStatus = paymentStatus;
+    const billingSyncedAt = hasBillingSnapshot ? now : existing?.billingSyncedAt;
+    if (billingSyncedAt) record.billingSyncedAt = billingSyncedAt;
 
     await this.financeRepository.upsertCustomerFinance(record);
     return record;
@@ -152,6 +181,10 @@ export class FinanceService {
         profit: revenue - costs,
         monthlyRevenue: customer.monthlyRevenue,
         monthlyInfraCost: customer.monthlyInfraCost,
+        stripeCustomerId: customer.stripeCustomerId,
+        stripeSubscriptionId: customer.stripeSubscriptionId,
+        subscriptionStatus: customer.subscriptionStatus,
+        paymentStatus: customer.paymentStatus,
         isActive: customer.isActive,
       };
     });
@@ -222,6 +255,11 @@ export class FinanceService {
         monthlyRevenue: customer.monthlyRevenue,
         monthlyInfraCost: customer.monthlyInfraCost,
         oneTimeSetupCost: customer.oneTimeSetupCost,
+        stripeCustomerId: customer.stripeCustomerId,
+        stripeSubscriptionId: customer.stripeSubscriptionId,
+        subscriptionStatus: customer.subscriptionStatus,
+        paymentStatus: customer.paymentStatus,
+        billingSyncedAt: customer.billingSyncedAt,
         isActive: customer.isActive,
         createdAt: customer.createdAt,
         updatedAt: customer.updatedAt,

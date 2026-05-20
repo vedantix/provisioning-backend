@@ -16,6 +16,11 @@ export type CustomerFinanceRecord = {
   monthlyRevenue: number;
   monthlyInfraCost: number;
   oneTimeSetupCost: number;
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+  subscriptionStatus?: string;
+  paymentStatus?: string;
+  billingSyncedAt?: string;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -51,6 +56,10 @@ export type FinanceOverview = {
     profit: number;
     monthlyRevenue: number;
     monthlyInfraCost: number;
+    stripeCustomerId?: string;
+    stripeSubscriptionId?: string;
+    subscriptionStatus?: string;
+    paymentStatus?: string;
   }>;
 };
 
@@ -64,6 +73,11 @@ export type CustomerFinanceDetails = {
     monthlyRevenue: number;
     monthlyInfraCost: number;
     oneTimeSetupCost: number;
+    stripeCustomerId?: string;
+    stripeSubscriptionId?: string;
+    subscriptionStatus?: string;
+    paymentStatus?: string;
+    billingSyncedAt?: string;
     isActive: boolean;
     createdAt: string;
     updatedAt: string;

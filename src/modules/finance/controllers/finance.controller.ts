@@ -11,8 +11,13 @@ export class FinanceController {
       companyName: req.body.companyName,
       packageCode: req.body.packageCode,
       extras: Array.isArray(req.body.extras) ? req.body.extras : [],
+      monthlyRevenue: req.body.monthlyRevenue,
       monthlyInfraCost: req.body.monthlyInfraCost,
       oneTimeSetupCost: req.body.oneTimeSetupCost,
+      stripeCustomerId: req.body.stripeCustomerId,
+      stripeSubscriptionId: req.body.stripeSubscriptionId,
+      subscriptionStatus: req.body.subscriptionStatus,
+      paymentStatus: req.body.paymentStatus,
       isActive: req.body.isActive,
     });
 
