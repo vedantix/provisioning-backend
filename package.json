@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-acm": "^3.821.0",
+    "@aws-sdk/client-apprunner": "^3.1051.0",
     "@aws-sdk/client-cloudfront": "^3.821.0",
     "@aws-sdk/client-dynamodb": "^3.821.0",
     "@aws-sdk/client-route-53": "^3.821.0",

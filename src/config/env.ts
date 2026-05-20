@@ -67,6 +67,7 @@ export const env = {
   jobsTable: required('JOBS_TABLE'),
   financeTable: optional('FINANCE_TABLE', 'vedantix-finance')!,
   adminUsersTable: optional('ADMIN_USERS_TABLE', 'vedantix-admin-users')!,
+  productCatalogTable: optional('PRODUCT_CATALOG_TABLE', 'product_catalog')!,
 
   allowedRootDomain: optional('ALLOWED_ROOT_DOMAIN', 'vedantix.nl')!,
   corsAllowedOrigins: csvFromEnv('CORS_ALLOWED_ORIGINS', [
@@ -95,6 +96,8 @@ export const env = {
   cleanupCandidateMinAgeHours: numberFromEnv('CLEANUP_CANDIDATE_MIN_AGE_HOURS', 24),
 
   pricingTable: optional('PRICING_TABLE', 'vedantix-pricing')!,
+  stripeCurrency: optional('STRIPE_CURRENCY', 'eur')!,
+  appRunnerServiceArn: optional('APP_RUNNER_SERVICE_ARN'),
 
   alertsEnabled: booleanFromEnv('ALERTS_ENABLED', false),
   alertTopicArn: optional('ALERT_TOPIC_ARN'),

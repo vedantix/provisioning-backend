@@ -1,128 +1,55 @@
 import { Router } from 'express';
-import Stripe from 'stripe';
+import { asyncHandler } from '../middleware/async-handler';
+import { requireAdminAuthMiddleware } from '../middleware/require-admin-auth.middleware';
+import { requireActorContextMiddleware } from '../middleware/require-actor-context.middleware';
+import { ProductCatalogService } from '../services/catalog/product-catalog.service';
 
 const router = Router();
+const catalogService = new ProductCatalogService();
 
-type CatalogProduct = {
-  code: string;
-  name: string;
-  description?: string;
-  monthlyPrice: number;
-  setupPrice: number;
-  stripeProductId?: string;
-  stripeMonthlyPriceId?: string;
-  stripeSetupPriceId?: string;
-  updatedAt: string;
-};
+router.use(requireAdminAuthMiddleware);
+router.use(requireActorContextMiddleware);
 
-const catalog = new Map<string, CatalogProduct>();
+router.get(
+  '/products',
+  asyncHandler(async (req, res) => {
+    const products = await catalogService.listProducts();
 
-function getStripe(): Stripe {
-  const secretKey = process.env.STRIPE_SECRET_KEY;
-  if (!secretKey) throw new Error('STRIPE_SECRET_KEY is not configured');
-  return new Stripe(secretKey, { apiVersion: '2025-08-27.basil' });
-}
-
-function normalizeCode(code: string): string {
-  return String(code || '').trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
-}
-
-async function ensurePrice(
-  stripe: Stripe,
-  productId: string,
-  amount: number,
-  recurring: boolean
-): Promise<string> {
-  const price = await stripe.prices.create({
-    product: productId,
-    unit_amount: Math.round(amount * 100),
-    currency: 'eur',
-    ...(recurring ? { recurring: { interval: 'month' } } : {}),
-  });
-
-  return price.id;
-}
-
-router.get('/products', (_req, res) => {
-  res.json(Array.from(catalog.values()));
-});
-
-router.post('/products', async (req, res, next) => {
-  try {
-    const code = normalizeCode(req.body.code);
-    const product: CatalogProduct = {
-      code,
-      name: req.body.name,
-      description: req.body.description || '',
-      monthlyPrice: Number(req.body.monthlyPrice || 0),
-      setupPrice: Number(req.body.setupPrice || 0),
-      updatedAt: new Date().toISOString(),
-    };
-
-    catalog.set(code, { ...catalog.get(code), ...product });
-    res.json(catalog.get(code));
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.post('/products/:code/sync', async (req, res, next) => {
-  try {
-    const code = normalizeCode(req.params.code);
-    const product = catalog.get(code);
-
-    if (!product) {
-      res.status(404).json({ error: 'Product not found' });
-      return;
-    }
-
-    const stripe = getStripe();
-
-    let stripeProductId = product.stripeProductId;
-
-    if (!stripeProductId) {
-      const stripeProduct = await stripe.products.create({
-        name: product.name,
-        description: product.description,
-        metadata: { code },
-      });
-      stripeProductId = stripeProduct.id;
-    }
-
-    const stripeMonthlyPriceId = await ensurePrice(
-      stripe,
-      stripeProductId,
-      product.monthlyPrice,
-      true
-    );
-
-    const stripeSetupPriceId = await ensurePrice(
-      stripe,
-      stripeProductId,
-      product.setupPrice,
-      false
-    );
-
-    const synced: CatalogProduct = {
-      ...product,
-      stripeProductId,
-      stripeMonthlyPriceId,
-      stripeSetupPriceId,
-      updatedAt: new Date().toISOString(),
-    };
-
-    catalog.set(code, synced);
-
-    res.json({
-      ...synced,
-      env: {
-        [`STRIPE_PRICE_${code}`]: stripeMonthlyPriceId,
-        [`STRIPE_PRICE_${code}_SETUP`]: stripeSetupPriceId,
-      },
+    res.status(200).json({
+      data: products,
+      requestId: req.ctx.requestId,
     });
-  } catch (error) {
-    next(error);
-  }
-});
+  }),
+);
+
+router.post(
+  '/products',
+  asyncHandler(async (req, res) => {
+    const product = await catalogService.upsertProduct({
+      code: req.body?.code,
+      name: req.body?.name,
+      description: req.body?.description,
+      monthlyPrice: req.body?.monthlyPrice,
+      setupPrice: req.body?.setupPrice,
+    });
+
+    res.status(200).json({
+      data: product,
+      requestId: req.ctx.requestId,
+    });
+  }),
+);
+
+router.post(
+  '/products/:code/sync',
+  asyncHandler(async (req, res) => {
+    const result = await catalogService.syncProduct(String(req.params.code));
+
+    res.status(200).json({
+      data: result,
+      requestId: req.ctx.requestId,
+    });
+  }),
+);
 
 export default router;

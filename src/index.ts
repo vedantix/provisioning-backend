@@ -6,6 +6,7 @@ import domainRoutes from "./routes/domain.routes";
 import packageRoutes from "./routes/package.routes";
 import mailboxRoutes from "./routes/mailbox.routes";
 import billingRoutes from "./routes/billing.routes";
+import catalogRoutes from "./routes/catalog.routes";
 import deleteRoutes from "./routes/delete.routes";
 import redeployRoutes from "./routes/redeploy.routes";
 import rollbackRoutes from "./routes/rollback.routes";
@@ -109,6 +110,7 @@ app.use("/api/webhooks", base44WebhookRoutes);
 app.use("/", previewRoutes);
 app.use("/api", adminAuthRoutes);
 app.use("/api/billing", billingRoutes);
+app.use("/api/catalog", catalogRoutes);
 
 app.use("/api", customersRoutes);
 app.use("/api/finance", financeRoutes);
