@@ -11,8 +11,24 @@ function getStripe(): Stripe {
   }
 
   return new Stripe(secretKey, {
-    apiVersion: '2025-04-30.basil',
+    apiVersion: '2025-08-27.basil',
   });
+}
+
+function getDefaultPriceId(): string {
+  return process.env.STRIPE_DEFAULT_PRICE_ID || process.env.STRIPE_PRICE_ID || '';
+}
+
+function getDefaultSuccessUrl(): string {
+  return process.env.STRIPE_SUCCESS_URL || 'https://vedantix.nl/admin';
+}
+
+function getDefaultCancelUrl(): string {
+  return process.env.STRIPE_CANCEL_URL || getDefaultSuccessUrl();
+}
+
+function getStripeCustomerId(body: any): string {
+  return String(body?.stripeCustomerId || body?.customerId || '').trim();
 }
 
 router.get('/health', (_req, res) => {
@@ -24,19 +40,25 @@ router.get('/health', (_req, res) => {
 router.post('/customers', async (req, res, next) => {
   try {
     const stripe = getStripe();
-    const { email, name, customerId } = req.body;
+    const { email, name, customerId, metadata } = req.body;
 
     const customer = await stripe.customers.create({
-      email,
-      name,
+      email: email || undefined,
+      name: name || undefined,
       metadata: {
-        customerId: customerId || '',
+        ...(metadata && typeof metadata === 'object' ? metadata : {}),
+        customerId: customerId || metadata?.customerId || '',
       },
     });
 
     res.json({
       success: true,
       stripeCustomerId: customer.id,
+      customer: {
+        id: customer.id,
+        email: customer.email,
+        name: customer.name,
+      },
     });
   } catch (error) {
     next(error);
@@ -46,7 +68,22 @@ router.post('/customers', async (req, res, next) => {
 router.post('/checkout-session', async (req, res, next) => {
   try {
     const stripe = getStripe();
-    const { customerId, priceId, successUrl, cancelUrl } = req.body;
+    const customerId = getStripeCustomerId(req.body);
+    const priceId = String(req.body?.priceId || getDefaultPriceId()).trim();
+    const successUrl = String(req.body?.successUrl || getDefaultSuccessUrl()).trim();
+    const cancelUrl = String(req.body?.cancelUrl || getDefaultCancelUrl()).trim();
+
+    if (!customerId) {
+      res.status(400).json({ error: 'Stripe customer ID is required' });
+      return;
+    }
+
+    if (!priceId) {
+      res.status(400).json({
+        error: 'Stripe price ID is required. Set STRIPE_DEFAULT_PRICE_ID or send priceId.',
+      });
+      return;
+    }
 
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
@@ -65,6 +102,7 @@ router.post('/checkout-session', async (req, res, next) => {
       success: true,
       sessionId: session.id,
       checkoutUrl: session.url,
+      url: session.url,
     });
   } catch (error) {
     next(error);
@@ -74,7 +112,13 @@ router.post('/checkout-session', async (req, res, next) => {
 router.post('/portal', async (req, res, next) => {
   try {
     const stripe = getStripe();
-    const { customerId, returnUrl } = req.body;
+    const customerId = getStripeCustomerId(req.body);
+    const returnUrl = String(req.body?.returnUrl || getDefaultSuccessUrl()).trim();
+
+    if (!customerId) {
+      res.status(400).json({ error: 'Stripe customer ID is required' });
+      return;
+    }
 
     const session = await stripe.billingPortal.sessions.create({
       customer: customerId,
