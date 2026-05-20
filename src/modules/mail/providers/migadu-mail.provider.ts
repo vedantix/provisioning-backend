@@ -16,14 +16,31 @@ function normalizeEmail(localPart: string, domain: string): string {
   return `${localPart.trim().toLowerCase()}@${normalizeDomain(domain)}`;
 }
 
+function requireMigaduConfig(name: string, value: string): string {
+  if (!value.trim()) {
+    throw new Error(`[MAIL_CONFIG] Missing required environment variable: ${name}`);
+  }
+
+  return value.trim();
+}
+
 export class MigaduMailProvider implements MailProvider {
   private client(): AxiosInstance {
+    const username = requireMigaduConfig(
+      'MIGADU_USERNAME',
+      mailConfig.migadu.username,
+    );
+    const password = requireMigaduConfig(
+      'MIGADU_PASSWORD',
+      mailConfig.migadu.password,
+    );
+
     return axios.create({
       baseURL: mailConfig.migadu.apiBaseUrl,
       timeout: mailConfig.migadu.requestTimeoutMs,
       auth: {
-        username: mailConfig.migadu.username,
-        password: mailConfig.migadu.password,
+        username,
+        password,
       },
       headers: {
         'Content-Type': 'application/json',

@@ -107,7 +107,38 @@ jobs:
           echo "service_arn=$SERVICE_ARN" >> "$GITHUB_OUTPUT"
 
       - name: Start App Runner deployment
+        id: start-deployment
         run: |
-          aws apprunner start-deployment \
+          OPERATION_ID=$(aws apprunner start-deployment \
             --service-arn "${{ steps.apprunner.outputs.service_arn }}" \
-            --region "${AWS_REGION}"
+            --region "${AWS_REGION}" \
+            --query OperationId \
+            --output text)
+
+          echo "operation_id=${OPERATION_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for App Runner deployment
+        run: |
+          for attempt in $(seq 1 60); do
+            STATUS=$(aws apprunner list-operations \
+              --service-arn "${{ steps.apprunner.outputs.service_arn }}" \
+              --region "${AWS_REGION}" \
+              --query "OperationSummaryList[?Id=='${{ steps.start-deployment.outputs.operation_id }}'].Status | [0]" \
+              --output text)
+
+            echo "App Runner deployment status: ${STATUS}"
+
+            case "${STATUS}" in
+              SUCCEEDED)
+                exit 0
+                ;;
+              FAILED|ROLLBACK_SUCCEEDED|ROLLBACK_FAILED)
+                exit 1
+                ;;
+            esac
+
+            sleep 10
+          done
+
+          echo "Timed out waiting for App Runner deployment."
+          exit 1

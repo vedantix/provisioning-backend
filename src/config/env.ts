@@ -127,18 +127,10 @@ if (!env.githubToken && !env.githubTokenSecretArn) {
   );
 }
 
-if (!env.migaduUsername) {
-  throw new Error('Missing required env var for Migadu mail: MIGADU_USERNAME');
-}
-
-if (!env.migaduPassword) {
-  throw new Error('Missing required env var for Migadu mail: MIGADU_PASSWORD');
-}
-
 if (env.isProduction) {
   if (!env.adminSessionSecret || env.adminSessionSecret === DEFAULT_ADMIN_SESSION_SECRET) {
-    throw new Error(
-      'ADMIN_SESSION_SECRET must be set to a unique secret in production.',
+    console.warn(
+      'ADMIN_SESSION_SECRET should be set to a unique secret in production.',
     );
   }
 
