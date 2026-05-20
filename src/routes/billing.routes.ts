@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import Stripe from 'stripe';
+import { requireAdminAuthMiddleware } from '../middleware/require-admin-auth.middleware';
+import { requireActorContextMiddleware } from '../middleware/require-actor-context.middleware';
 
 const router = Router();
 
@@ -36,6 +38,9 @@ router.get('/health', (_req, res) => {
     enabled: Boolean(process.env.STRIPE_SECRET_KEY),
   });
 });
+
+router.use(requireAdminAuthMiddleware);
+router.use(requireActorContextMiddleware);
 
 router.post('/customers', async (req, res, next) => {
   try {

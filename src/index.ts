@@ -108,6 +108,7 @@ app.use("/api", pricingRoutes);
 app.use("/api/webhooks", base44WebhookRoutes);
 app.use("/", previewRoutes);
 app.use("/api", adminAuthRoutes);
+app.use("/api/billing", billingRoutes);
 
 app.use("/api", customersRoutes);
 app.use("/api/finance", financeRoutes);
@@ -125,7 +126,6 @@ app.use("/api", deploymentRoutes);
 app.use("/api", domainRoutes);
 app.use("/api", packageRoutes);
 app.use("/api", mailboxRoutes);
-app.use("/api/billing", billingRoutes);
 app.use("/api", deleteRoutes);
 app.use("/api", redeployRoutes);
 app.use("/api", rollbackRoutes);
