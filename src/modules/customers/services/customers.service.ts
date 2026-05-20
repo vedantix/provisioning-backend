@@ -14,6 +14,10 @@ function slugify(value: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
+function isDeletedCustomer(customer: CustomerRecord | null): boolean {
+  return Boolean(customer?.deletedAt || customer?.status === 'cancelled');
+}
+
 export class CustomersService {
   constructor(
     private readonly customersRepository = new CustomersRepository(),
@@ -147,12 +151,14 @@ export class CustomersService {
 
     if (!customer) return null;
     if (customer.tenantId !== tenantId) return null;
+    if (isDeletedCustomer(customer)) return null;
 
     return customer;
   }
 
   async listCustomers(tenantId: string): Promise<CustomerRecord[]> {
-    return this.customersRepository.listByTenant(tenantId);
+    const customers = await this.customersRepository.listByTenant(tenantId);
+    return customers.filter((customer) => !isDeletedCustomer(customer));
   }
 
   async updateCustomer(params: {
@@ -188,10 +194,14 @@ export class CustomersService {
     actorId: string;
     customerId: string;
   }): Promise<CustomerRecord> {
-    const existing = await this.getCustomerById(params.tenantId, params.customerId);
+    const existing = await this.customersRepository.getById(params.customerId);
   
-    if (!existing) {
+    if (!existing || existing.tenantId !== params.tenantId) {
       throw new Error('Customer not found');
+    }
+
+    if (isDeletedCustomer(existing)) {
+      return existing;
     }
   
     const now = new Date().toISOString();
@@ -199,6 +209,8 @@ export class CustomersService {
     const updated: CustomerRecord = {
       ...existing,
       status: 'cancelled',
+      deletedAt: now,
+      deletedBy: params.actorId,
       updatedAt: now,
       updatedBy: params.actorId,
     };

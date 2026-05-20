@@ -158,6 +158,9 @@ export interface CustomerRecord {
   contentSync?: ContentSyncInfo;
   deployment?: DeploymentInfo;
 
+  deletedAt?: string;
+  deletedBy?: string;
+
   createdAt: string;
   updatedAt: string;
   createdBy: string;
