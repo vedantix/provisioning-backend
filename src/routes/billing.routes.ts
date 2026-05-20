@@ -33,6 +33,32 @@ function getStripeCustomerId(body: any): string {
   return String(body?.stripeCustomerId || body?.customerId || '').trim();
 }
 
+function normalizePackageCode(value: unknown): string {
+  return String(value || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z]/g, '');
+}
+
+function getPackagePrices(packageCode: string): { monthly?: string; setup?: string } {
+  const packages: Record<string, { monthly?: string; setup?: string }> = {
+    STARTER: {
+      monthly: process.env.STRIPE_PRICE_STARTER,
+      setup: process.env.STRIPE_PRICE_STARTER_SETUP,
+    },
+    GROWTH: {
+      monthly: process.env.STRIPE_PRICE_GROWTH,
+      setup: process.env.STRIPE_PRICE_GROWTH_SETUP,
+    },
+    PRO: {
+      monthly: process.env.STRIPE_PRICE_PRO,
+      setup: process.env.STRIPE_PRICE_PRO_SETUP,
+    },
+  };
+
+  return packages[packageCode] || {};
+}
+
 router.get('/health', (_req, res) => {
   res.json({
     enabled: Boolean(process.env.STRIPE_SECRET_KEY),
@@ -74,7 +100,20 @@ router.post('/checkout-session', async (req, res, next) => {
   try {
     const stripe = getStripe();
     const customerId = getStripeCustomerId(req.body);
-    const priceId = String(req.body?.priceId || getDefaultPriceId()).trim();
+    const packageCode = normalizePackageCode(
+      req.body?.packageCode || req.body?.package || req.body?.planCode
+    );
+
+    const packagePrices = getPackagePrices(packageCode);
+
+    const monthlyPriceId = String(
+      req.body?.priceId || packagePrices.monthly || getDefaultPriceId()
+    ).trim();
+
+    const setupPriceId = String(
+      req.body?.setupPriceId || packagePrices.setup || ''
+    ).trim();
+
     const successUrl = String(req.body?.successUrl || getDefaultSuccessUrl()).trim();
     const cancelUrl = String(req.body?.cancelUrl || getDefaultCancelUrl()).trim();
 
@@ -83,22 +122,31 @@ router.post('/checkout-session', async (req, res, next) => {
       return;
     }
 
-    if (!priceId) {
+    if (!monthlyPriceId) {
       res.status(400).json({
-        error: 'Stripe price ID is required. Set STRIPE_DEFAULT_PRICE_ID or send priceId.',
+        error: 'Stripe monthly price ID is required.',
       });
       return;
     }
 
+    const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
+
+    if (setupPriceId) {
+      lineItems.push({
+        price: setupPriceId,
+        quantity: 1,
+      });
+    }
+
+    lineItems.push({
+      price: monthlyPriceId,
+      quantity: 1,
+    });
+
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       customer: customerId,
-      line_items: [
-        {
-          price: priceId,
-          quantity: 1,
-        },
-      ],
+      line_items: lineItems,
       success_url: successUrl,
       cancel_url: cancelUrl,
     });
@@ -108,6 +156,7 @@ router.post('/checkout-session', async (req, res, next) => {
       sessionId: session.id,
       checkoutUrl: session.url,
       url: session.url,
+      lineItems,
     });
   } catch (error) {
     next(error);
