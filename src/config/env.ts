@@ -129,8 +129,8 @@ if (!env.githubToken && !env.githubTokenSecretArn) {
 
 if (env.isProduction) {
   if (!env.adminSessionSecret || env.adminSessionSecret === DEFAULT_ADMIN_SESSION_SECRET) {
-    console.warn(
-      'ADMIN_SESSION_SECRET should be set to a unique secret in production.',
+    throw new Error(
+      'ADMIN_SESSION_SECRET must be set to a unique secret in production.',
     );
   }
 

@@ -120,11 +120,26 @@ jobs:
       - name: Wait for App Runner deployment
         run: |
           for attempt in $(seq 1 60); do
+            set +e
             STATUS=$(aws apprunner list-operations \
               --service-arn "${{ steps.apprunner.outputs.service_arn }}" \
               --region "${AWS_REGION}" \
-              --query "OperationSummaryList[?Id=='${{ steps.start-deployment.outputs.operation_id }}'].Status | [0]" \
-              --output text)
+              --query "OperationSummaryList[?Id=='${{ steps.start-deployment.outputs.operation_id }}'].Status" \
+              --output text 2>&1)
+            EXIT_CODE=$?
+            set -e
+
+            if [ "${EXIT_CODE}" -ne 0 ]; then
+              echo "Could not read App Runner deployment status yet: ${STATUS}"
+              sleep 10
+              continue
+            fi
+
+            if [ -z "${STATUS}" ] || [ "${STATUS}" = "None" ]; then
+              echo "App Runner deployment status not available yet."
+              sleep 10
+              continue
+            fi
 
             echo "App Runner deployment status: ${STATUS}"
 
