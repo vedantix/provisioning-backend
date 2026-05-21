@@ -4,7 +4,9 @@ import { FinancePricingService } from './finance-pricing.service';
 import type {
   CustomerFinanceDetails,
   CustomerFinanceRecord,
+  FinanceDeleteResult,
   FinanceExpenseRecord,
+  FinanceExpenseDeleteResult,
   FinanceOverview,
   FinanceRange,
 } from '../types/finance.types';
@@ -272,6 +274,49 @@ export class FinanceService {
         directExpenses,
       },
       expenses: scopedExpenses,
+    };
+  }
+
+  async deleteCustomerFinance(input: {
+    tenantId: string;
+    customerId: string;
+  }): Promise<FinanceDeleteResult> {
+    const [customer, deletedExpenses] = await Promise.all([
+      this.financeRepository.getCustomerFinance(input.tenantId, input.customerId),
+      this.financeRepository.deleteExpensesByCustomer(
+        input.tenantId,
+        input.customerId,
+      ),
+    ]);
+
+    if (customer) {
+      await this.financeRepository.deleteCustomerFinance(
+        input.tenantId,
+        input.customerId,
+      );
+    }
+
+    return {
+      customerId: input.customerId,
+      deletedCustomerFinance: Boolean(customer),
+      deletedExpenses: deletedExpenses.length,
+      expenseIds: deletedExpenses.map((expense) => expense.id),
+    };
+  }
+
+  async deleteExpense(input: {
+    tenantId: string;
+    expenseId: string;
+  }): Promise<FinanceExpenseDeleteResult> {
+    const deleted = await this.financeRepository.deleteExpenseById(
+      input.tenantId,
+      input.expenseId,
+    );
+
+    return {
+      expenseId: input.expenseId,
+      customerId: deleted?.customerId,
+      deleted: Boolean(deleted),
     };
   }
 }

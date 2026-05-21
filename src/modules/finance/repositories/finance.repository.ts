@@ -1,6 +1,7 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DynamoDBDocumentClient,
+  DeleteCommand,
   GetCommand,
   PutCommand,
   QueryCommand,
@@ -15,6 +16,10 @@ import type {
 const client = new DynamoDBClient({});
 const ddb = DynamoDBDocumentClient.from(client);
 const TABLE_NAME = env.financeTable;
+
+function expenseSortKey(record: Pick<FinanceExpenseRecord, 'expenseDate' | 'id'>): string {
+  return `EXPENSE#${record.expenseDate}#${record.id}`;
+}
 
 type FinanceTableItem =
   | (CustomerFinanceRecord & {
@@ -140,6 +145,62 @@ export class FinanceRepository {
     return ((result.Items as FinanceExpenseRecord[] | undefined) ?? []).filter(
       (item) => (item as any).entityType === 'FINANCE_EXPENSE',
     );
+  }
+
+  async deleteCustomerFinance(
+    tenantId: string,
+    customerId: string,
+  ): Promise<void> {
+    await ddb.send(
+      new DeleteCommand({
+        TableName: TABLE_NAME,
+        Key: {
+          pk: `TENANT#${tenantId}`,
+          sk: `CUSTOMER#${customerId}`,
+        },
+      }),
+    );
+  }
+
+  async deleteExpense(record: FinanceExpenseRecord): Promise<void> {
+    await ddb.send(
+      new DeleteCommand({
+        TableName: TABLE_NAME,
+        Key: {
+          pk: `TENANT#${record.tenantId}`,
+          sk: expenseSortKey(record),
+        },
+      }),
+    );
+  }
+
+  async deleteExpenseById(
+    tenantId: string,
+    expenseId: string,
+  ): Promise<FinanceExpenseRecord | null> {
+    const expenses = await this.listExpenses(tenantId);
+    const expense =
+      expenses.find((item) => item.id === expenseId && item.tenantId === tenantId) ||
+      null;
+
+    if (!expense) {
+      return null;
+    }
+
+    await this.deleteExpense(expense);
+    return expense;
+  }
+
+  async deleteExpensesByCustomer(
+    tenantId: string,
+    customerId: string,
+  ): Promise<FinanceExpenseRecord[]> {
+    const expenses = (await this.listExpensesByCustomer(customerId)).filter(
+      (item) => item.tenantId === tenantId,
+    );
+
+    await Promise.all(expenses.map((expense) => this.deleteExpense(expense)));
+    return expenses;
   }
 
   async healthScan(limit = 5): Promise<number> {

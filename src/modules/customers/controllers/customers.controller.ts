@@ -191,6 +191,19 @@ export class CustomersController {
       customerId,
     });
 
+    await this.financeService
+      .deleteCustomerFinance({
+        tenantId: req.ctx.tenantId,
+        customerId,
+      })
+      .catch((error) => {
+        console.error('[CUSTOMER_FINANCE_DELETE_FAILED]', {
+          customerId,
+          tenantId: req.ctx.tenantId,
+          message: error instanceof Error ? error.message : 'Unknown error',
+        });
+      });
+
     res.status(200).json({ data: updated, requestId: req.ctx.requestId });
   };
 

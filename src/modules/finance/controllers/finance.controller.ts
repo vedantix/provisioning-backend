@@ -166,4 +166,28 @@ export class FinanceController {
       requestId: req.ctx.requestId,
     });
   };
+
+  deleteCustomerFinance = async (req: Request, res: Response): Promise<void> => {
+    const result = await this.financeService.deleteCustomerFinance({
+      tenantId: req.ctx.tenantId,
+      customerId: String(req.params.customerId || '').trim(),
+    });
+
+    res.status(200).json({
+      data: result,
+      requestId: req.ctx.requestId,
+    });
+  };
+
+  deleteExpense = async (req: Request, res: Response): Promise<void> => {
+    const result = await this.financeService.deleteExpense({
+      tenantId: req.ctx.tenantId,
+      expenseId: String(req.params.expenseId || '').trim(),
+    });
+
+    res.status(200).json({
+      data: result,
+      requestId: req.ctx.requestId,
+    });
+  };
 }

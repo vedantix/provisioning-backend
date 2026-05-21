@@ -38,6 +38,19 @@ export type FinanceExpenseRecord = {
   updatedAt: string;
 };
 
+export type FinanceDeleteResult = {
+  customerId: string;
+  deletedCustomerFinance: boolean;
+  deletedExpenses: number;
+  expenseIds: string[];
+};
+
+export type FinanceExpenseDeleteResult = {
+  expenseId: string;
+  customerId?: string;
+  deleted: boolean;
+};
+
 export type FinanceOverview = {
   range: FinanceRange;
   totals: {
