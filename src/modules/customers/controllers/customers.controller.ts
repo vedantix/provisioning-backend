@@ -1,6 +1,8 @@
+import crypto from 'node:crypto';
 import type { Request, Response } from 'express';
 import { CustomersService } from '../services/customers.service';
 import { CustomerBase44Service } from '../services/customer-base44.service';
+import { Base44AutoCreateService } from '../../base44/services/base44-autocreate.service';
 import { normalizeCreateDeploymentInput } from '../../../domain/deployments/request-normalizer';
 import {
   IdempotencyService,
@@ -40,6 +42,21 @@ function toPackageCode(value: string): PackageCode {
   }
 
   throw new Error(`Unsupported package code for mail provisioning: ${value}`);
+}
+
+function parseAdditionalFiles(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+    .map((item) => ({
+      path: String(item.path || '').trim(),
+      content: String(item.content || ''),
+      encoding: item.encoding === 'base64' ? 'base64' as const : 'utf-8' as const,
+    }))
+    .filter((item) => item.path.length > 0);
 }
 
 function buildBase44Prompt(params: {
@@ -110,6 +127,7 @@ export class CustomersController {
   constructor(
     private readonly customersService = new CustomersService(),
     private readonly customerBase44Service = new CustomerBase44Service(),
+    private readonly base44AutoCreateService = new Base44AutoCreateService(),
     private readonly idempotencyService = new IdempotencyService(),
     private readonly deploymentsRepository = new DeploymentsRepository(),
     private readonly operationsRepository = new OperationsRepository(),
@@ -193,11 +211,201 @@ export class CustomersController {
     res.status(200).json({ data: result, requestId: req.ctx.requestId });
   };
 
-  autoCreateBase44App = async (_req: Request, res: Response): Promise<void> => { res.status(501).json({ error: 'Not implemented' }); };
-  linkBase44App = async (_req: Request, res: Response): Promise<void> => { res.status(501).json({ error: 'Not implemented' }); };
-  syncCustomerContent = async (_req: Request, res: Response): Promise<void> => { res.status(501).json({ error: 'Not implemented' }); };
-  markPreviewReady = async (_req: Request, res: Response): Promise<void> => { res.status(501).json({ error: 'Not implemented' }); };
-  markApprovedForProduction = async (_req: Request, res: Response): Promise<void> => { res.status(501).json({ error: 'Not implemented' }); };
+  autoCreateBase44App = async (req: Request, res: Response): Promise<void> => {
+    const customerId = getSingleParam(req.params.customerId, 'customerId');
+    const customer = await this.customersService.getCustomerById(req.ctx.tenantId, customerId);
+
+    if (!customer) {
+      res.status(404).json({ error: 'Customer not found', requestId: req.ctx.requestId });
+      return;
+    }
+
+    const requestedPrompt =
+      String(req.body.requestedPrompt || '').trim() ||
+      buildBase44Prompt({
+        companyName: customer.companyName,
+        domain: customer.domain,
+        packageCode: customer.packageCode,
+        niche: req.body.niche || customer.niche,
+        templateKey: req.body.templateKey || customer.templateKey,
+        city: customer.city,
+        extras: customer.extras,
+      });
+
+    const result = await this.base44AutoCreateService.createApp({
+      customerId: customer.id,
+      companyName: customer.companyName,
+      domain: customer.domain,
+      packageCode: customer.packageCode,
+      niche: String(req.body.niche || customer.niche || '').trim() || undefined,
+      templateKey: String(req.body.templateKey || customer.templateKey || '').trim() || undefined,
+      prompt: requestedPrompt,
+    });
+
+    const updated = await this.customerBase44Service.linkExistingApp(
+      customer,
+      {
+        tenantId: req.ctx.tenantId,
+        customerId: customer.id,
+        actorId: req.ctx.actorId,
+        appId: result.appId,
+        appName: result.appName,
+        editorUrl: result.editorUrl,
+        previewUrl: result.previewUrl,
+        templateKey: String(req.body.templateKey || customer.templateKey || '').trim() || undefined,
+        niche: String(req.body.niche || customer.niche || '').trim() || undefined,
+        requestedPrompt,
+      },
+    );
+
+    res.status(200).json({ data: updated, requestId: req.ctx.requestId });
+  };
+
+  linkBase44App = async (req: Request, res: Response): Promise<void> => {
+    const customerId = getSingleParam(req.params.customerId, 'customerId');
+    const customer = await this.customersService.getCustomerById(req.ctx.tenantId, customerId);
+
+    if (!customer) {
+      res.status(404).json({ error: 'Customer not found', requestId: req.ctx.requestId });
+      return;
+    }
+
+    const appId = String(req.body.appId || '').trim();
+    if (!appId) {
+      res.status(400).json({ error: 'appId is required', requestId: req.ctx.requestId });
+      return;
+    }
+
+    const updated = await this.customerBase44Service.linkExistingApp(
+      customer,
+      {
+        tenantId: req.ctx.tenantId,
+        customerId: customer.id,
+        actorId: req.ctx.actorId,
+        appId,
+        appName: String(req.body.appName || customer.companyName || '').trim() || undefined,
+        editorUrl: String(req.body.editorUrl || '').trim() || undefined,
+        previewUrl: String(req.body.previewUrl || '').trim() || undefined,
+        templateKey: String(req.body.templateKey || customer.templateKey || '').trim() || undefined,
+        niche: String(req.body.niche || customer.niche || '').trim() || undefined,
+        requestedPrompt:
+          String(req.body.requestedPrompt || '').trim() ||
+          customer.requestedPrompt ||
+          buildBase44Prompt({
+            companyName: customer.companyName,
+            domain: customer.domain,
+            packageCode: customer.packageCode,
+            niche: req.body.niche || customer.niche,
+            templateKey: req.body.templateKey || customer.templateKey,
+            city: customer.city,
+            extras: customer.extras,
+          }),
+      },
+    );
+
+    res.status(200).json({ data: updated, requestId: req.ctx.requestId });
+  };
+
+  syncCustomerContent = async (req: Request, res: Response): Promise<void> => {
+    const customerId = getSingleParam(req.params.customerId, 'customerId');
+    const customer = await this.customersService.getCustomerById(req.ctx.tenantId, customerId);
+
+    if (!customer) {
+      res.status(404).json({ error: 'Customer not found', requestId: req.ctx.requestId });
+      return;
+    }
+
+    ensureHasBase44Linked(customer);
+
+    const indexHtml = String(req.body.indexHtml || '').trim();
+    if (!indexHtml) {
+      res.status(400).json({ error: 'indexHtml is required', requestId: req.ctx.requestId });
+      return;
+    }
+
+    const syncResult = await this.contentSyncService.syncCustomerContent(customer, {
+      customerId: customer.id,
+      tenantId: req.ctx.tenantId,
+      actorId: req.ctx.actorId,
+      projectId: String(req.body.projectId || customer.base44?.appId || '').trim() || undefined,
+      indexHtml,
+      additionalFiles: parseAdditionalFiles(req.body.additionalFiles),
+    });
+
+    const refreshed = await this.customersService.getCustomerById(
+      req.ctx.tenantId,
+      customer.id,
+    );
+
+    res.status(200).json({
+      data: {
+        customer: refreshed,
+        sync: syncResult,
+      },
+      requestId: req.ctx.requestId,
+    });
+  };
+
+  markPreviewReady = async (req: Request, res: Response): Promise<void> => {
+    const customerId = getSingleParam(req.params.customerId, 'customerId');
+    const customer = await this.customersService.getCustomerById(req.ctx.tenantId, customerId);
+
+    if (!customer) {
+      res.status(404).json({ error: 'Customer not found', requestId: req.ctx.requestId });
+      return;
+    }
+
+    ensureHasBase44Linked(customer);
+
+    const previewUrl =
+      String(req.body.previewUrl || '').trim() ||
+      String(customer.base44?.previewUrl || '').trim();
+
+    if (!previewUrl) {
+      throw new ConflictHttpError('Preview URL ontbreekt. Vul eerst de Base44 preview URL in.');
+    }
+
+    const updated = await this.customersService.updateWorkflowState(
+      customer,
+      {
+        tenantId: req.ctx.tenantId,
+        actorId: req.ctx.actorId,
+        customerId: customer.id,
+        status: 'awaiting_approval',
+        websiteBuildStatus: 'PREVIEW_READY',
+        previewUrl,
+      },
+    );
+
+    res.status(200).json({ data: updated, requestId: req.ctx.requestId });
+  };
+
+  markApprovedForProduction = async (req: Request, res: Response): Promise<void> => {
+    const customerId = getSingleParam(req.params.customerId, 'customerId');
+    const customer = await this.customersService.getCustomerById(req.ctx.tenantId, customerId);
+
+    if (!customer) {
+      res.status(404).json({ error: 'Customer not found', requestId: req.ctx.requestId });
+      return;
+    }
+
+    ensureHasPreview(customer);
+    ensurePreviewReady(customer);
+
+    const updated = await this.customersService.updateWorkflowState(
+      customer,
+      {
+        tenantId: req.ctx.tenantId,
+        actorId: req.ctx.actorId,
+        customerId: customer.id,
+        status: 'approved',
+        websiteBuildStatus: 'APPROVED_FOR_PRODUCTION',
+        previewUrl: String(req.body.previewUrl || customer.base44?.previewUrl || '').trim(),
+      },
+    );
+
+    res.status(200).json({ data: updated, requestId: req.ctx.requestId });
+  };
 
   deployCustomer = async (req: Request, res: Response): Promise<void> => {
     const customerId = getSingleParam(req.params.customerId, 'customerId');
@@ -208,6 +416,9 @@ export class CustomersController {
       return;
     }
 
+    ensureApprovedForProduction(customer);
+    ensureContentSynced(customer);
+
     if (req.body.provisionMail !== false) {
       await this.mailProvisioningService.provisionPackageMail({
         customerId: customer.id,
@@ -217,9 +428,134 @@ export class CustomersController {
       });
     }
 
+    const input = normalizeCreateDeploymentInput({
+      customerId: customer.id,
+      tenantId: req.ctx.tenantId,
+      projectName: req.body.projectName || customer.companyName,
+      domain: customer.domain,
+      packageCode: customer.packageCode,
+      addOns: customer.extras,
+      source: req.ctx.source,
+      createdBy: req.ctx.actorId,
+      triggeredBy: req.ctx.actorId,
+      idempotencyKey: req.ctx.idempotencyKey,
+    });
+
+    const requestHash =
+      this.idempotencyService.buildCreateDeploymentRequestHash(input);
+
+    if (input.idempotencyKey) {
+      const existingOperation =
+        await this.idempotencyService.getExistingOperationForKey(
+          input.idempotencyKey,
+          requestHash,
+        );
+
+      if (existingOperation) {
+        const updatedCustomer = await this.customersService.updateWorkflowState(
+          customer,
+          {
+            tenantId: req.ctx.tenantId,
+            actorId: req.ctx.actorId,
+            customerId: customer.id,
+            status: 'provisioning',
+            websiteBuildStatus: 'APPROVED_FOR_PRODUCTION',
+            deploymentId: existingOperation.deploymentId,
+            deploymentStatus: existingOperation.status,
+            liveDomain: customer.domain,
+          },
+        );
+
+        res.status(200).json({
+          data: {
+            reused: true,
+            customer: updatedCustomer,
+            operationId: existingOperation.operationId,
+            deploymentId: existingOperation.deploymentId,
+            status: existingOperation.status,
+            liveDomain: customer.domain,
+            mailProvisioned: req.body.provisionMail !== false,
+          },
+          requestId: req.ctx.requestId,
+        });
+        return;
+      }
+    }
+
+    try {
+      await this.idempotencyService.assertCreateAllowed(input);
+    } catch (error) {
+      if (error instanceof ConflictError) {
+        throw new ConflictHttpError(error.message);
+      }
+      throw error;
+    }
+
+    const deploymentId = crypto.randomUUID();
+
+    const deployment = this.idempotencyService.createPendingDeployment({
+      deploymentId,
+      requestHash,
+      input,
+    });
+
+    const operation = this.idempotencyService.createAcceptedOperation({
+      deploymentId,
+      requestHash,
+      input,
+    });
+
+    await this.deploymentsRepository.create(deployment);
+    await this.operationsRepository.create(operation);
+
+    const updatedCustomer = await this.customersService.updateWorkflowState(
+      customer,
+      {
+        tenantId: req.ctx.tenantId,
+        actorId: req.ctx.actorId,
+        customerId: customer.id,
+        status: 'provisioning',
+        websiteBuildStatus: 'APPROVED_FOR_PRODUCTION',
+        deploymentId,
+        deploymentStatus: deployment.status,
+        deploymentStage: deployment.currentStage ?? null,
+        liveDomain: customer.domain,
+      },
+    );
+
+    const { AuditService } = await import('../../../domain/audit/audit.service');
+    const auditService = new AuditService();
+
+    await auditService.write({
+      deploymentId,
+      operationId: operation.operationId,
+      tenantId: deployment.tenantId,
+      customerId: deployment.customerId,
+      actorId: req.ctx.actorId,
+      eventType: 'DEPLOYMENT_CREATED',
+      metadata: {
+        domain: deployment.domain,
+        packageCode: deployment.packageCode,
+        source: 'CUSTOMER_WORKFLOW',
+      },
+    });
+
+    void import('../../../domain/deployments/deployment-orchestrator.service').then(
+      async ({ DeploymentOrchestratorService }) => {
+        const orchestrator = new DeploymentOrchestratorService();
+        await orchestrator.runCreate(deploymentId, operation.operationId);
+      },
+    );
+
     res.status(202).json({
       data: {
         customerId: customer.id,
+        customer: updatedCustomer,
+        deploymentId,
+        operationId: operation.operationId,
+        status: deployment.status,
+        currentStage: deployment.currentStage ?? null,
+        liveDomain: customer.domain,
         mailProvisioned: req.body.provisionMail !== false,
       },
       requestId: req.ctx.requestId,

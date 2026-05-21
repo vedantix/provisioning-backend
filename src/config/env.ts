@@ -110,6 +110,7 @@ export const env = {
 
   base44EditorBaseUrl: optional('BASE44_EDITOR_BASE_URL', 'https://app.base44.com/apps')!,
   base44PreviewBaseUrl: optional('BASE44_PREVIEW_BASE_URL', 'https://preview.vedantix.nl')!,
+  publicPreviewBaseUrl: optional('PUBLIC_PREVIEW_BASE_URL', 'https://www.vedantix.nl')!,
 
   base44AutoCreateEnabled: booleanFromEnv('BASE44_AUTOCREATE_ENABLED', false),
   base44AutoCreateWebhookUrl: optional('BASE44_AUTOCREATE_WEBHOOK_URL'),

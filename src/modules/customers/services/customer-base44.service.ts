@@ -1,4 +1,5 @@
 import { CustomersRepository } from '../repositories/customers.repository';
+import { PreviewService } from '../../preview/services/preview.service';
 import type {
   CustomerRecord,
   LinkBase44AppInput,
@@ -6,6 +7,7 @@ import type {
 
 export class CustomerBase44Service {
   private repo = new CustomersRepository();
+  private previewService = new PreviewService();
 
   async requestAppCreation(
     customer: CustomerRecord,
@@ -82,6 +84,22 @@ export class CustomerBase44Service {
       throw new Error('Customer not found after Base44 link update');
     }
 
-    return updatedCustomer;
+    const preview = this.previewService.buildPreviewMetadata({
+      companyName: updatedCustomer.companyName,
+      domain: updatedCustomer.domain,
+      base44PreviewUrl: input.previewUrl || updatedCustomer.base44?.previewUrl,
+    });
+
+    const customerWithPreview: CustomerRecord = {
+      ...updatedCustomer,
+      preview: {
+        ...updatedCustomer.preview,
+        ...preview,
+      },
+    };
+
+    await this.repo.update(customerWithPreview);
+
+    return customerWithPreview;
   }
 }

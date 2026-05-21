@@ -1,3 +1,5 @@
+import { env } from "../../../config/env";
+
 function slugify(value: string): string {
   return String(value || "")
     .toLowerCase()
@@ -6,11 +8,35 @@ function slugify(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+function normalizeDomain(value: string): string {
+  return String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .split("/")[0]
+    .split("?")[0]
+    .split("#")[0]
+    .replace(/:+$/, "");
+}
+
+function buildSlugFromDomain(domain: string): string {
+  const normalized = normalizeDomain(domain);
+  const rootLabel = normalized.split(".").filter(Boolean)[0] || normalized;
+  return slugify(rootLabel);
+}
+
+function joinUrl(baseUrl: string, path: string): string {
+  const base = String(baseUrl || "").replace(/\/+$/, "");
+  const suffix = String(path || "").replace(/^\/+/, "");
+  return `${base}/${suffix}`;
+}
+
 export class PreviewService {
   buildPreviewSlug(companyName: string, domain: string): string {
+    const domainSlug = buildSlugFromDomain(domain);
     const companySlug = slugify(companyName);
-    const domainSlug = slugify(String(domain || "").split(".")[0] || domain);
-    return companySlug || domainSlug;
+    return domainSlug || companySlug;
   }
 
   buildPreviewPath(slug: string): string {
@@ -18,7 +44,7 @@ export class PreviewService {
   }
 
   buildPreviewUrl(slug: string): string {
-    return `https://preview.vedantix.nl/${slug}`;
+    return joinUrl(env.publicPreviewBaseUrl, slug);
   }
 
   buildPreviewMetadata(params: {
