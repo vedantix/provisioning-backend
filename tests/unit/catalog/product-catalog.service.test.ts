@@ -140,4 +140,61 @@ describe('ProductCatalogService', () => {
       STRIPE_PRICE_STARTER_SETUP: 'price_starter_setup',
     });
   });
+
+  it('returns Stripe IDs with warnings when storage or App Runner sync fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const repository = {
+      getProduct: vi.fn().mockRejectedValue(new Error('catalog unavailable')),
+      upsertProduct: vi.fn().mockRejectedValue(new Error('catalog write failed')),
+    };
+    const stripeService = {
+      syncProduct: vi.fn().mockResolvedValue({
+        productId: 'prod_starter',
+        monthlyPriceId: 'price_starter_month',
+        setupPriceId: 'price_starter_setup',
+      }),
+    };
+    const appRunnerConfigService = {
+      syncEnvironmentVariables: vi
+        .fn()
+        .mockRejectedValue(new Error('APP_RUNNER_SERVICE_ARN is not configured')),
+    };
+    const pricingService = {
+      getSummary: vi.fn().mockResolvedValue({
+        packages: [buildPricingPackage()],
+      }),
+    };
+
+    const service = new ProductCatalogService(
+      repository as any,
+      stripeService as any,
+      appRunnerConfigService as any,
+      pricingService as any,
+    );
+
+    const result = await service.syncProduct('STARTER', 'default', {
+      code: 'STARTER',
+      name: 'Vedantix Starter',
+      description: 'Voor starters',
+      monthlyPrice: 99,
+      setupPrice: 599,
+    });
+
+    expect(result.product).toMatchObject({
+      code: 'STARTER',
+      stripeProductId: 'prod_starter',
+      stripeMonthlyPriceId: 'price_starter_month',
+      stripeSetupPriceId: 'price_starter_setup',
+    });
+    expect(result.appRunner).toMatchObject({
+      redeployStarted: false,
+      warning: 'APP_RUNNER_SERVICE_ARN is not configured',
+    });
+    expect(result.warnings?.join('\n')).toContain('catalog unavailable');
+    expect(result.warnings?.join('\n')).toContain('catalog write failed');
+    expect(result.warnings?.join('\n')).toContain(
+      'APP_RUNNER_SERVICE_ARN is not configured',
+    );
+  });
 });

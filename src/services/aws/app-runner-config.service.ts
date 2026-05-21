@@ -1,6 +1,7 @@
 import {
   AppRunnerClient,
   DescribeServiceCommand,
+  ListServicesCommand,
   StartDeploymentCommand,
   UpdateServiceCommand,
   type SourceConfiguration,
@@ -25,18 +26,17 @@ export class AppRunnerConfigService {
   constructor(
     private readonly client = new AppRunnerClient({ region: env.awsRegion }),
     private readonly serviceArn = env.appRunnerServiceArn,
+    private readonly serviceName = env.appRunnerServiceName,
   ) {}
 
   async syncEnvironmentVariables(
     variables: Record<string, string>,
   ): Promise<AppRunnerUpdateResult> {
-    if (!this.serviceArn) {
-      throw new Error('APP_RUNNER_SERVICE_ARN is not configured');
-    }
+    const serviceArn = await this.resolveServiceArn();
 
     const current = await this.client.send(
       new DescribeServiceCommand({
-        ServiceArn: this.serviceArn,
+        ServiceArn: serviceArn,
       }),
     );
 
@@ -48,7 +48,7 @@ export class AppRunnerConfigService {
 
     const update = await this.client.send(
       new UpdateServiceCommand({
-        ServiceArn: this.serviceArn,
+        ServiceArn: serviceArn,
         SourceConfiguration: sourceConfiguration,
       }),
     );
@@ -59,7 +59,7 @@ export class AppRunnerConfigService {
     try {
       const deployment = await this.client.send(
         new StartDeploymentCommand({
-          ServiceArn: this.serviceArn,
+          ServiceArn: serviceArn,
         }),
       );
       deploymentOperationId = deployment.OperationId;
@@ -79,12 +79,44 @@ export class AppRunnerConfigService {
     }
 
     return {
-      serviceArn: this.serviceArn,
+      serviceArn,
       updateOperationId: update.OperationId,
       deploymentOperationId,
       redeployStarted: true,
       warning,
     };
+  }
+
+  private async resolveServiceArn(): Promise<string> {
+    if (this.serviceArn) {
+      return this.serviceArn;
+    }
+
+    if (!this.serviceName) {
+      throw new Error('APP_RUNNER_SERVICE_ARN or APP_RUNNER_SERVICE_NAME is required');
+    }
+
+    let nextToken: string | undefined;
+
+    do {
+      const result = await this.client.send(
+        new ListServicesCommand({
+          NextToken: nextToken,
+        }),
+      );
+
+      const match = result.ServiceSummaryList?.find(
+        (service) => service.ServiceName === this.serviceName,
+      );
+
+      if (match?.ServiceArn) {
+        return match.ServiceArn;
+      }
+
+      nextToken = result.NextToken;
+    } while (nextToken);
+
+    throw new Error(`App Runner service not found: ${this.serviceName}`);
   }
 
   private applyRuntimeEnvironmentVariables(

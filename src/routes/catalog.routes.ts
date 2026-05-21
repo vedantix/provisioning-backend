@@ -43,9 +43,20 @@ router.post(
 router.post(
   '/products/:code/sync',
   asyncHandler(async (req, res) => {
+    const productInput = req.body?.product
+      ? {
+          code: req.body.product.code || req.params.code,
+          name: req.body.product.name,
+          description: req.body.product.description,
+          monthlyPrice: req.body.product.monthlyPrice,
+          setupPrice: req.body.product.setupPrice,
+        }
+      : undefined;
+
     const result = await catalogService.syncProduct(
       String(req.params.code),
       req.ctx.tenantId,
+      productInput,
     );
 
     res.status(200).json({

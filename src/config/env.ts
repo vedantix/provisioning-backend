@@ -98,6 +98,7 @@ export const env = {
   pricingTable: optional('PRICING_TABLE', 'vedantix-pricing')!,
   stripeCurrency: optional('STRIPE_CURRENCY', 'eur')!,
   appRunnerServiceArn: optional('APP_RUNNER_SERVICE_ARN'),
+  appRunnerServiceName: optional('APP_RUNNER_SERVICE_NAME', 'vedantix-provisioning-api')!,
 
   alertsEnabled: booleanFromEnv('ALERTS_ENABLED', false),
   alertTopicArn: optional('ALERT_TOPIC_ARN'),

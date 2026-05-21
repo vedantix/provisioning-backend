@@ -4,6 +4,7 @@ import { AppRunnerConfigService } from '../aws/app-runner-config.service';
 import { StripeProductCatalogService } from './stripe-product-catalog.service';
 import { PricingService } from '../../modules/pricing/services/pricing.service';
 import { DEFAULT_PACKAGES } from '../../modules/pricing/config/pricing.defaults';
+import { env } from '../../config/env';
 import type { PricingPackageRecord } from '../../modules/pricing/types/pricing.types';
 import type {
   ProductCatalogInput,
@@ -121,9 +122,16 @@ export class ProductCatalogService {
   async syncProduct(
     codeInput: string,
     tenantId?: string,
+    input?: ProductCatalogInput,
   ): Promise<ProductCatalogSyncResult> {
     const code = normalizeCode(codeInput);
-    let existing = await this.repository.getProduct(code);
+    const warnings: string[] = [];
+    let existing = await this.getCatalogProductSafely(code, warnings);
+
+    if (input) {
+      existing = this.recordFromInput(input, existing, code);
+      await this.upsertCatalogProductSafely(existing, warnings);
+    }
 
     if (!existing) {
       existing =
@@ -132,7 +140,7 @@ export class ProductCatalogService {
         ) || null;
 
       if (existing) {
-        await this.repository.upsertProduct(existing);
+        await this.upsertCatalogProductSafely(existing, warnings);
       }
     }
 
@@ -151,12 +159,13 @@ export class ProductCatalogService {
       updatedAt: now,
     };
 
-    await this.repository.upsertProduct(syncedProduct);
+    await this.upsertCatalogProductSafely(syncedProduct, warnings);
 
     const environmentVariables =
       buildProductPriceEnvironmentVariables(syncedProduct);
-    const appRunner = await this.appRunnerConfigService.syncEnvironmentVariables(
+    const appRunner = await this.syncAppRunnerSafely(
       environmentVariables,
+      warnings,
     );
 
     return {
@@ -164,7 +173,86 @@ export class ProductCatalogService {
       stripe,
       appRunner,
       environmentVariables,
+      warnings,
     };
+  }
+
+  private recordFromInput(
+    input: ProductCatalogInput,
+    existing: ProductCatalogRecord | null,
+    fallbackCode: string,
+  ): ProductCatalogRecord {
+    const normalized = validateProductInput({
+      ...input,
+      code: fallbackCode,
+    });
+    const now = new Date().toISOString();
+
+    return {
+      ...existing,
+      ...normalized,
+      description: normalized.description || '',
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+      stripeProductId: existing?.stripeProductId || '',
+      stripeMonthlyPriceId: existing?.stripeMonthlyPriceId || '',
+      stripeSetupPriceId: existing?.stripeSetupPriceId || '',
+      lastSyncedAt: existing?.lastSyncedAt,
+    };
+  }
+
+  private async getCatalogProductSafely(
+    code: string,
+    warnings: string[],
+  ): Promise<ProductCatalogRecord | null> {
+    try {
+      return await this.repository.getProduct(code);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[PRODUCT_CATALOG_GET_FAILED]', { code, message });
+      warnings.push(`Productcatalogus lezen is mislukt: ${message}`);
+      return null;
+    }
+  }
+
+  private async upsertCatalogProductSafely(
+    product: ProductCatalogRecord,
+    warnings: string[],
+  ): Promise<void> {
+    try {
+      await this.repository.upsertProduct(product);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[PRODUCT_CATALOG_SAVE_FAILED]', {
+        code: product.code,
+        message,
+      });
+      warnings.push(`Productcatalogus opslaan is mislukt: ${message}`);
+    }
+  }
+
+  private async syncAppRunnerSafely(
+    environmentVariables: Record<string, string>,
+    warnings: string[],
+  ): Promise<ProductCatalogSyncResult['appRunner']> {
+    try {
+      return await this.appRunnerConfigService.syncEnvironmentVariables(
+        environmentVariables,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[PRODUCT_CATALOG_APP_RUNNER_SYNC_FAILED]', {
+        message,
+        environmentVariableKeys: Object.keys(environmentVariables),
+      });
+      warnings.push(`App Runner synchronisatie is mislukt: ${message}`);
+
+      return {
+        serviceArn: env.appRunnerServiceArn || '',
+        redeployStarted: false,
+        warning: message,
+      };
+    }
   }
 
   private async listCatalogProductsSafely(): Promise<ProductCatalogRecord[]> {

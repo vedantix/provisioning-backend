@@ -35,4 +35,5 @@ export type ProductCatalogSyncResult = {
     warning?: string;
   };
   environmentVariables: Record<string, string>;
+  warnings?: string[];
 };
