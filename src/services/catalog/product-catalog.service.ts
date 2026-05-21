@@ -100,22 +100,11 @@ export class ProductCatalogService {
 
   async upsertProduct(input: ProductCatalogInput): Promise<ProductCatalogRecord> {
     const normalized = validateProductInput(input);
-    const now = new Date().toISOString();
-    const existing = await this.repository.getProduct(normalized.code);
+    const warnings: string[] = [];
+    const existing = await this.getCatalogProductSafely(normalized.code, warnings);
+    const record = this.recordFromInput(normalized, existing, normalized.code);
 
-    const record: ProductCatalogRecord = {
-      ...existing,
-      ...normalized,
-      description: normalized.description || '',
-      createdAt: existing?.createdAt || now,
-      updatedAt: now,
-      stripeProductId: existing?.stripeProductId || '',
-      stripeMonthlyPriceId: existing?.stripeMonthlyPriceId || '',
-      stripeSetupPriceId: existing?.stripeSetupPriceId || '',
-      lastSyncedAt: existing?.lastSyncedAt,
-    };
-
-    await this.repository.upsertProduct(record);
+    await this.upsertCatalogProductSafely(record, warnings);
     return record;
   }
 

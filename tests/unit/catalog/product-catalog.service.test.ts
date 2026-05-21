@@ -91,6 +91,37 @@ describe('ProductCatalogService', () => {
     expect(pricingService.getSummary).toHaveBeenCalledWith('default');
   });
 
+  it('does not fail saving when the catalog table is missing', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const repository = {
+      getProduct: vi.fn().mockRejectedValue(new Error('Requested resource not found')),
+      upsertProduct: vi.fn().mockRejectedValue(new Error('Requested resource not found')),
+    };
+
+    const service = new ProductCatalogService(
+      repository as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+
+    await expect(
+      service.upsertProduct({
+        code: 'CUSTOM',
+        name: 'Vedantix Custom',
+        description: 'Maatwerk',
+        monthlyPrice: 599,
+        setupPrice: 3999,
+      }),
+    ).resolves.toMatchObject({
+      code: 'CUSTOM',
+      name: 'Vedantix Custom',
+      monthlyPrice: 599,
+      setupPrice: 3999,
+    });
+  });
+
   it('can sync a product that only exists in pricing configuration', async () => {
     const repository = {
       getProduct: vi.fn().mockResolvedValue(null),
