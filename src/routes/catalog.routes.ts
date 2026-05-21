@@ -13,7 +13,7 @@ router.use(requireActorContextMiddleware);
 router.get(
   '/products',
   asyncHandler(async (req, res) => {
-    const products = await catalogService.listProducts();
+    const products = await catalogService.listProducts(req.ctx.tenantId);
 
     res.status(200).json({
       data: products,
@@ -43,7 +43,10 @@ router.post(
 router.post(
   '/products/:code/sync',
   asyncHandler(async (req, res) => {
-    const result = await catalogService.syncProduct(String(req.params.code));
+    const result = await catalogService.syncProduct(
+      String(req.params.code),
+      req.ctx.tenantId,
+    );
 
     res.status(200).json({
       data: result,

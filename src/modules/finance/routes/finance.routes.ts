@@ -13,6 +13,7 @@ router.use(requireActorContextMiddleware);
 router.post('/customers/bootstrap', asyncHandler(controller.bootstrapCustomer));
 router.post('/expenses', asyncHandler(controller.createExpense));
 router.get('/overview', asyncHandler(controller.getOverview));
+router.get('/summary', asyncHandler(controller.getStripeSummary));
 router.get('/customers/:customerId', asyncHandler(controller.getCustomerDetails));
 
 export default router;

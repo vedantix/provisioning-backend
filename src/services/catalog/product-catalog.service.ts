@@ -2,6 +2,9 @@ import { ProductCatalogRepository } from '../../repositories/product-catalog.rep
 import { BadRequestError, NotFoundError } from '../../errors/app-error';
 import { AppRunnerConfigService } from '../aws/app-runner-config.service';
 import { StripeProductCatalogService } from './stripe-product-catalog.service';
+import { PricingService } from '../../modules/pricing/services/pricing.service';
+import { DEFAULT_PACKAGES } from '../../modules/pricing/config/pricing.defaults';
+import type { PricingPackageRecord } from '../../modules/pricing/types/pricing.types';
 import type {
   ProductCatalogInput,
   ProductCatalogRecord,
@@ -67,10 +70,31 @@ export class ProductCatalogService {
     private readonly repository = new ProductCatalogRepository(),
     private readonly stripeService = new StripeProductCatalogService(),
     private readonly appRunnerConfigService = new AppRunnerConfigService(),
+    private readonly pricingService = new PricingService(),
   ) {}
 
-  async listProducts(): Promise<ProductCatalogRecord[]> {
-    return this.repository.listProducts();
+  async listProducts(tenantId?: string): Promise<ProductCatalogRecord[]> {
+    const [catalogProducts, pricingProducts] = await Promise.all([
+      this.listCatalogProductsSafely(),
+      this.listPricingProductsSafely(tenantId),
+    ]);
+
+    const byCode = new Map<string, ProductCatalogRecord>();
+
+    for (const product of pricingProducts) {
+      byCode.set(product.code, product);
+    }
+
+    for (const product of catalogProducts) {
+      byCode.set(product.code, {
+        ...byCode.get(product.code),
+        ...product,
+      });
+    }
+
+    return Array.from(byCode.values()).sort((a, b) =>
+      String(a.code).localeCompare(String(b.code)),
+    );
   }
 
   async upsertProduct(input: ProductCatalogInput): Promise<ProductCatalogRecord> {
@@ -94,9 +118,23 @@ export class ProductCatalogService {
     return record;
   }
 
-  async syncProduct(codeInput: string): Promise<ProductCatalogSyncResult> {
+  async syncProduct(
+    codeInput: string,
+    tenantId?: string,
+  ): Promise<ProductCatalogSyncResult> {
     const code = normalizeCode(codeInput);
-    const existing = await this.repository.getProduct(code);
+    let existing = await this.repository.getProduct(code);
+
+    if (!existing) {
+      existing =
+        (await this.listPricingProductsSafely(tenantId)).find(
+          (product) => product.code === code,
+        ) || null;
+
+      if (existing) {
+        await this.repository.upsertProduct(existing);
+      }
+    }
 
     if (!existing) {
       throw new NotFoundError(`Product niet gevonden: ${code}`);
@@ -126,6 +164,50 @@ export class ProductCatalogService {
       stripe,
       appRunner,
       environmentVariables,
+    };
+  }
+
+  private async listCatalogProductsSafely(): Promise<ProductCatalogRecord[]> {
+    try {
+      return await this.repository.listProducts();
+    } catch (error) {
+      console.error('[PRODUCT_CATALOG_LIST_FAILED]', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+      return [];
+    }
+  }
+
+  private async listPricingProductsSafely(
+    tenantId?: string,
+  ): Promise<ProductCatalogRecord[]> {
+    try {
+      const summary = await this.pricingService.getSummary(tenantId);
+      return summary.packages.map((item) => this.fromPricingPackage(item));
+    } catch (error) {
+      console.error('[PRODUCT_CATALOG_PRICING_FALLBACK_FAILED]', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+      return DEFAULT_PACKAGES.map((item) => this.fromPricingPackage(item));
+    }
+  }
+
+  private fromPricingPackage(
+    item: PricingPackageRecord,
+  ): ProductCatalogRecord {
+    return {
+      code: normalizeCode(item.code),
+      name: item.label?.startsWith('Vedantix')
+        ? item.label
+        : `Vedantix ${item.label || item.code}`,
+      description: item.description || '',
+      monthlyPrice: Number(item.monthlyPriceInclVat || 0),
+      setupPrice: Number(item.setupPriceInclVat || 0),
+      stripeProductId: '',
+      stripeMonthlyPriceId: '',
+      stripeSetupPriceId: '',
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
     };
   }
 }
