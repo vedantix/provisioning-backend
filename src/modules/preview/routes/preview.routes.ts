@@ -29,6 +29,78 @@ function domainSlug(value: string): string {
   return slugify(domain.split(".").filter(Boolean)[0] || domain);
 }
 
+function parseMaybeUrl(value: string): URL | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  try {
+    return new URL(raw);
+  } catch {
+    if (/^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(raw)) {
+      try {
+        return new URL(`https://${raw}`);
+      } catch {
+        return null;
+      }
+    }
+  }
+
+  return null;
+}
+
+function isEditorLikePreviewUrl(value?: string): boolean {
+  const url = parseMaybeUrl(String(value || ""));
+  if (!url) return false;
+
+  const hostname = url.hostname.toLowerCase();
+  return (
+    hostname === "app.base44.com" ||
+    hostname === "preview.vedantix.nl" ||
+    url.pathname.toLowerCase().includes("/editor")
+  );
+}
+
+function normalizeDiscoveredBase44Url(value: string): string {
+  const url = parseMaybeUrl(value);
+  if (!url || !url.hostname.toLowerCase().endsWith(".base44.app")) {
+    return "";
+  }
+
+  return url.origin;
+}
+
+async function discoverPublicBase44Url(...values: Array<string | undefined>) {
+  const candidates = values
+    .map((value) => String(value || "").trim())
+    .filter((value) => value && isEditorLikePreviewUrl(value));
+
+  for (const candidate of candidates) {
+    try {
+      const response = await axios.get<string>(candidate, {
+        responseType: "text",
+        timeout: 5000,
+        validateStatus: (status) => status >= 200 && status < 500,
+      });
+      const matches =
+        String(response.data || "").match(/https?:\/\/[a-z0-9-]+\.base44\.app/gi) || [];
+
+      for (const match of matches) {
+        const publicUrl = normalizeDiscoveredBase44Url(match);
+        if (publicUrl) {
+          return publicUrl;
+        }
+      }
+    } catch (error) {
+      console.warn("[PREVIEW_BASE44_DISCOVERY_FAILED]", {
+        candidate,
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
+
+  return "";
+}
+
 function jsonForScript(value: string): string {
   return JSON.stringify(value).replace(/</g, "\\u003c");
 }
@@ -159,12 +231,18 @@ async function resolvePreview(slug: string, tenantId: string) {
     storedTargetUrl !== fullUrl
       ? storedTargetUrl
       : "";
-  const targetUrl = previewService.resolvePreviewTargetUrl({
-    base44PreviewUrl: customer.base44?.previewUrl,
-    base44EditorUrl: customer.base44?.editorUrl,
-    base44AppName: customer.base44?.appName,
-    fallbackTargetUrl,
-  });
+  const targetUrl =
+    (await discoverPublicBase44Url(
+      customer.base44?.previewUrl,
+      customer.base44?.editorUrl,
+      fallbackTargetUrl,
+    )) ||
+    previewService.resolvePreviewTargetUrl({
+      base44PreviewUrl: customer.base44?.previewUrl,
+      base44EditorUrl: customer.base44?.editorUrl,
+      base44AppName: customer.base44?.appName,
+      fallbackTargetUrl,
+    });
 
   if (!targetUrl) {
     return null;
