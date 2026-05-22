@@ -1,5 +1,6 @@
 import { CustomersService } from '../../customers/services/customers.service';
 import { ContentSyncService } from '../../content-sync/services/content-sync.service';
+import { PreviewService } from '../../preview/services/preview.service';
 import type { CustomerRecord } from '../../customers/types/customer.types';
 
 export type StartCustomerBuildFlowInput = {
@@ -31,6 +32,7 @@ export class CustomerBuildFlowService {
   constructor(
     private readonly customersService = new CustomersService(),
     private readonly contentSyncService = new ContentSyncService(),
+    private readonly previewService = new PreviewService(),
   ) {}
 
   async startFlow(
@@ -79,8 +81,15 @@ export class CustomerBuildFlowService {
       contentSynced = true;
     }
 
+    const previewUrl = this.previewService.resolvePreviewTargetUrl({
+      base44PreviewUrl: workingCustomer.base44?.previewUrl,
+      base44EditorUrl: workingCustomer.base44?.editorUrl,
+      base44AppName: workingCustomer.base44?.appName,
+      fallbackTargetUrl: workingCustomer.preview?.targetUrl,
+    });
+
     if (
-      workingCustomer.base44?.previewUrl &&
+      previewUrl &&
       workingCustomer.websiteBuildStatus !== 'PREVIEW_READY' &&
       workingCustomer.websiteBuildStatus !== 'APPROVED_FOR_PRODUCTION' &&
       workingCustomer.websiteBuildStatus !== 'LIVE'
@@ -93,12 +102,12 @@ export class CustomerBuildFlowService {
           customerId: workingCustomer.id,
           status: 'awaiting_approval',
           websiteBuildStatus: 'PREVIEW_READY',
-          previewUrl: workingCustomer.base44.previewUrl,
+          previewUrl,
         },
       );
 
       previewReady = true;
-    } else if (workingCustomer.base44?.previewUrl) {
+    } else if (previewUrl) {
       previewReady = true;
     }
 

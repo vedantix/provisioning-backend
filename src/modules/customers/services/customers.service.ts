@@ -97,11 +97,21 @@ export class CustomersService {
     },
   ): Promise<CustomerRecord> {
     const now = new Date().toISOString();
+    const resolvedPreviewUrl = this.previewService.resolvePreviewTargetUrl({
+      base44PreviewUrl: params.previewUrl || customer.base44?.previewUrl,
+      base44EditorUrl: customer.base44?.editorUrl,
+      base44AppName: customer.base44?.appName,
+      fallbackTargetUrl: customer.preview?.targetUrl,
+    });
 
     const previewMeta = this.previewService.buildPreviewMetadata({
       companyName: customer.companyName,
       domain: customer.domain,
-      base44PreviewUrl: params.previewUrl || customer.base44?.previewUrl,
+      base44PreviewUrl:
+        resolvedPreviewUrl || params.previewUrl || customer.base44?.previewUrl,
+      base44EditorUrl: customer.base44?.editorUrl,
+      base44AppName: customer.base44?.appName,
+      fallbackTargetUrl: customer.preview?.targetUrl,
     });
 
     const updated: CustomerRecord = {
@@ -113,7 +123,8 @@ export class CustomersService {
 
       base44: {
         ...customer.base44,
-        previewUrl: params.previewUrl || customer.base44?.previewUrl,
+        previewUrl:
+          resolvedPreviewUrl || params.previewUrl || customer.base44?.previewUrl,
       },
 
       preview: {

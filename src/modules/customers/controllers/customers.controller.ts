@@ -16,6 +16,9 @@ import { FinanceService } from '../../finance/services/finance.service';
 import type { PackageCode } from '../../mail/types/mail.types';
 import { ContentSyncService } from '../../content-sync/services/content-sync.service';
 import { CustomerBuildFlowService } from '../../customer-workflow/services/customer-build-flow.service';
+import { PreviewService } from '../../preview/services/preview.service';
+
+const previewService = new PreviewService();
 
 function getSingleParam(value: string | string[] | undefined, name: string): string {
   if (typeof value === 'string' && value.trim()) {
@@ -95,18 +98,15 @@ function ensureHasPreview(customer: any): void {
   }
 }
 
-function derivePreviewUrlFromEditorUrl(editorUrl?: string): string {
-  const value = String(editorUrl || '').trim();
-  if (!value) return '';
-  return value.replace('/editor', '/editor/preview');
-}
-
 function resolveBase44PreviewUrl(customer: any, input?: unknown): string {
-  return (
-    String(input || '').trim() ||
-    String(customer?.base44?.previewUrl || '').trim() ||
-    derivePreviewUrlFromEditorUrl(customer?.base44?.editorUrl)
-  );
+  return previewService.resolvePreviewTargetUrl({
+    base44PreviewUrl:
+      String(input || '').trim() ||
+      String(customer?.base44?.previewUrl || '').trim(),
+    base44EditorUrl: customer?.base44?.editorUrl,
+    base44AppName: customer?.base44?.appName,
+    fallbackTargetUrl: customer?.preview?.targetUrl,
+  });
 }
 
 function ensurePreviewReady(customer: any): void {
@@ -388,7 +388,7 @@ export class CustomersController {
 
     if (!previewUrl) {
       throw new ConflictHttpError(
-        'Preview URL ontbreekt. Vul eerst de Base44 preview URL of editor URL in.',
+        'Preview URL ontbreekt. Vul eerst de publieke Base44 URL in, bijvoorbeeld https://klantnaam.base44.app.',
       );
     }
 

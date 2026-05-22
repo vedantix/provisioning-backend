@@ -49,7 +49,7 @@ router.post(
         appId,
         appName: companyName,
         editorUrl: `https://app.base44.com/apps/${appId}`,
-        previewUrl: `https://preview.vedantix.nl/${slug}`,
+        previewUrl: `https://${slug}.base44.app`,
       };
 
       console.info('[BASE44_WEBHOOK] created app', {

@@ -55,6 +55,12 @@ export class CustomerBase44Service {
     input: LinkBase44AppInput,
   ): Promise<CustomerRecord> {
     const now = new Date().toISOString();
+    const previewUrl = this.previewService.resolvePreviewTargetUrl({
+      base44PreviewUrl: input.previewUrl,
+      base44EditorUrl: input.editorUrl,
+      base44AppName: input.appName,
+      fallbackTargetUrl: customer.preview?.targetUrl,
+    });
 
     await this.repo.updateBase44Link({
       customerId: input.customerId,
@@ -69,7 +75,7 @@ export class CustomerBase44Service {
       appId: input.appId,
       appName: input.appName,
       editorUrl: input.editorUrl,
-      previewUrl: input.previewUrl,
+      previewUrl: previewUrl || input.previewUrl,
 
       templateKey: input.templateKey,
       niche: input.niche,
@@ -87,7 +93,10 @@ export class CustomerBase44Service {
     const preview = this.previewService.buildPreviewMetadata({
       companyName: updatedCustomer.companyName,
       domain: updatedCustomer.domain,
-      base44PreviewUrl: input.previewUrl || updatedCustomer.base44?.previewUrl,
+      base44PreviewUrl: previewUrl || input.previewUrl || updatedCustomer.base44?.previewUrl,
+      base44EditorUrl: input.editorUrl || updatedCustomer.base44?.editorUrl,
+      base44AppName: input.appName || updatedCustomer.base44?.appName,
+      fallbackTargetUrl: updatedCustomer.preview?.targetUrl,
     });
 
     const customerWithPreview: CustomerRecord = {

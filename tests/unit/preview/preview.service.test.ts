@@ -47,4 +47,33 @@ describe('PreviewService', () => {
       status: 'READY',
     });
   });
+
+  it('uses the public Base44 app instead of the Base44 editor shell', () => {
+    const service = new PreviewService();
+
+    const preview = service.buildPreviewMetadata({
+      companyName: 'Nature Healing Den Bosch',
+      domain: 'naturehealing.nl',
+      base44PreviewUrl: 'https://app.base44.com/apps/app_123/editor/preview',
+      base44AppName: 'nature-heals-denbosch',
+    });
+
+    expect(preview).toMatchObject({
+      slug: 'naturehealing',
+      path: '/naturehealing',
+      fullUrl: 'https://www.vedantix.nl/naturehealing',
+      targetUrl: 'https://nature-heals-denbosch.base44.app',
+      status: 'READY',
+    });
+  });
+
+  it('does not use the Base44 editor preview as a safe target', () => {
+    const service = new PreviewService();
+
+    expect(
+      service.resolvePreviewTargetUrl({
+        base44PreviewUrl: 'https://app.base44.com/apps/app_123/editor/preview',
+      }),
+    ).toBe('');
+  });
 });

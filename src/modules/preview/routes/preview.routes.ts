@@ -1,4 +1,5 @@
 import { Router } from "express";
+import axios from "axios";
 import { asyncHandler } from "../../../middleware/async-handler";
 import { CustomersRepository } from "../../customers/repositories/customers.repository";
 import { PreviewService } from "../services/preview.service";
@@ -26,6 +27,102 @@ function domainSlug(value: string): string {
     .split("#")[0];
 
   return slugify(domain.split(".").filter(Boolean)[0] || domain);
+}
+
+function jsonForScript(value: string): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
+function absolutizeRootAssetUrls(html: string, targetOrigin: string): string {
+  return html
+    .replace(
+      /(<(?:script|link|img|source|video|audio)\b[^>]*\s(?:src|href|poster)=["'])\/(?!\/)/gi,
+      `$1${targetOrigin}/`,
+    )
+    .replace(
+      /(<(?:source|img)\b[^>]*\ssrcset=["'])(\/(?!\/)[^"']*)(["'])/gi,
+      (_match, prefix: string, value: string, suffix: string) => {
+        const rewritten = value.replace(
+          /(^|,\s*)\/(?!\/)([^,\s]+)/g,
+          (_item, separator: string, path: string) =>
+            `${separator}${targetOrigin}/${path}`,
+        );
+        return `${prefix}${rewritten}${suffix}`;
+      },
+    );
+}
+
+function rewritePreviewHtml(html: string, targetUrl: string, previewPath: string): string {
+  const target = new URL(targetUrl);
+  const targetOrigin = target.origin;
+  const publicPath = previewPath.startsWith("/") ? previewPath : `/${previewPath}`;
+  const runtime = `
+<script>
+(() => {
+  const targetOrigin = ${jsonForScript(targetOrigin)};
+  const publicPath = ${jsonForScript(publicPath)};
+  const apiPathPattern = /^\\/(api|apps|prod|functions|app-logs|agent-conversations|ws-user-apps|socket\\.io|engine\\.io)(\\/|$)/;
+
+  const rewriteUrl = (value) => {
+    try {
+      const parsed = new URL(String(value), window.location.origin);
+      if (parsed.origin === window.location.origin && apiPathPattern.test(parsed.pathname)) {
+        return targetOrigin + parsed.pathname + parsed.search + parsed.hash;
+      }
+    } catch {}
+    return value;
+  };
+
+  if (window.location.pathname !== "/") {
+    window.history.replaceState(window.history.state, "", "/" + window.location.search + window.location.hash);
+  }
+
+  const nativeFetch = window.fetch ? window.fetch.bind(window) : null;
+  if (nativeFetch) {
+    window.fetch = (input, init) => {
+      if (typeof input === "string" || input instanceof URL) {
+        return nativeFetch(rewriteUrl(input.toString()), init);
+      }
+
+      if (input instanceof Request) {
+        const nextUrl = rewriteUrl(input.url);
+        if (nextUrl !== input.url) {
+          return nativeFetch(new Request(nextUrl, input), init);
+        }
+      }
+
+      return nativeFetch(input, init);
+    };
+  }
+
+  const nativeOpen = window.XMLHttpRequest && window.XMLHttpRequest.prototype.open;
+  if (nativeOpen) {
+    window.XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+      return nativeOpen.call(this, method, rewriteUrl(url), ...rest);
+    };
+  }
+
+  const restorePublicPath = () => {
+    if (window.location.pathname !== publicPath) {
+      window.history.replaceState(window.history.state, "", publicPath + window.location.search + window.location.hash);
+    }
+  };
+
+  window.addEventListener("load", () => window.setTimeout(restorePublicPath, 0));
+  window.setTimeout(restorePublicPath, 1200);
+  window.setTimeout(restorePublicPath, 3000);
+})();
+</script>`;
+  const robotsMeta = '<meta name="robots" content="noindex,nofollow,noarchive">';
+  const rewritten = absolutizeRootAssetUrls(html, targetOrigin)
+    .replace(/<meta[^>]+name=["']robots["'][^>]*>/i, "")
+    .replace(/<link[^>]+rel=["']canonical["'][^>]*>/i, "");
+
+  if (/<head[^>]*>/i.test(rewritten)) {
+    return rewritten.replace(/<head([^>]*)>/i, `<head$1>\n${robotsMeta}\n${runtime}`);
+  }
+
+  return `${runtime}${rewritten}`;
 }
 
 async function resolvePreview(slug: string, tenantId: string) {
@@ -56,20 +153,18 @@ async function resolvePreview(slug: string, tenantId: string) {
   const fullUrl = previewService.buildPreviewUrl(publicSlug);
   const storedTargetUrl = customer.preview?.targetUrl || "";
   const storedFullUrl = customer.preview?.fullUrl || "";
-  let targetUrl =
-    customer.base44?.previewUrl ||
-    (storedTargetUrl &&
+  const fallbackTargetUrl =
+    storedTargetUrl &&
     storedTargetUrl !== storedFullUrl &&
     storedTargetUrl !== fullUrl
       ? storedTargetUrl
-      : "");
-
-  if (!targetUrl && customer.base44?.editorUrl) {
-    targetUrl = customer.base44.editorUrl.replace(
-      "/editor",
-      "/editor/preview",
-    );
-  }
+      : "";
+  const targetUrl = previewService.resolvePreviewTargetUrl({
+    base44PreviewUrl: customer.base44?.previewUrl,
+    base44EditorUrl: customer.base44?.editorUrl,
+    base44AppName: customer.base44?.appName,
+    fallbackTargetUrl,
+  });
 
   if (!targetUrl) {
     return null;
@@ -87,6 +182,34 @@ async function resolvePreview(slug: string, tenantId: string) {
     },
   };
 }
+
+router.get(
+  "/api/preview/:slug/html",
+  asyncHandler(async (req, res) => {
+    const tenantId = String(req.ctx?.tenantId || "default");
+    const result = await resolvePreview(String(req.params.slug || ""), tenantId);
+
+    if (!result) {
+      return res.status(404).send("Preview not found");
+    }
+
+    const response = await axios.get<string>(result.preview.targetUrl, {
+      responseType: "text",
+      timeout: 15000,
+      validateStatus: (status) => status >= 200 && status < 400,
+    });
+    const html = rewritePreviewHtml(
+      response.data,
+      result.preview.targetUrl,
+      result.preview.path,
+    );
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(200).send(html);
+  }),
+);
 
 router.get(
   "/api/preview/:slug",
