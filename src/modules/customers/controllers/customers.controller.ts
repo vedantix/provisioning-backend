@@ -90,9 +90,23 @@ function ensureHasBase44Linked(customer: any): void {
 }
 
 function ensureHasPreview(customer: any): void {
-  if (!customer?.base44?.previewUrl) {
+  if (!resolveBase44PreviewUrl(customer)) {
     throw new ConflictHttpError('Preview URL ontbreekt. Zet eerst een preview klaar.');
   }
+}
+
+function derivePreviewUrlFromEditorUrl(editorUrl?: string): string {
+  const value = String(editorUrl || '').trim();
+  if (!value) return '';
+  return value.replace('/editor', '/editor/preview');
+}
+
+function resolveBase44PreviewUrl(customer: any, input?: unknown): string {
+  return (
+    String(input || '').trim() ||
+    String(customer?.base44?.previewUrl || '').trim() ||
+    derivePreviewUrlFromEditorUrl(customer?.base44?.editorUrl)
+  );
 }
 
 function ensurePreviewReady(customer: any): void {
@@ -370,12 +384,12 @@ export class CustomersController {
 
     ensureHasBase44Linked(customer);
 
-    const previewUrl =
-      String(req.body.previewUrl || '').trim() ||
-      String(customer.base44?.previewUrl || '').trim();
+    const previewUrl = resolveBase44PreviewUrl(customer, req.body.previewUrl);
 
     if (!previewUrl) {
-      throw new ConflictHttpError('Preview URL ontbreekt. Vul eerst de Base44 preview URL in.');
+      throw new ConflictHttpError(
+        'Preview URL ontbreekt. Vul eerst de Base44 preview URL of editor URL in.',
+      );
     }
 
     const updated = await this.customersService.updateWorkflowState(
@@ -413,7 +427,7 @@ export class CustomersController {
         customerId: customer.id,
         status: 'approved',
         websiteBuildStatus: 'APPROVED_FOR_PRODUCTION',
-        previewUrl: String(req.body.previewUrl || customer.base44?.previewUrl || '').trim(),
+        previewUrl: resolveBase44PreviewUrl(customer, req.body.previewUrl),
       },
     );
 

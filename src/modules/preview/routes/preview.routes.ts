@@ -56,13 +56,20 @@ async function resolvePreview(slug: string, tenantId: string) {
   const fullUrl = previewService.buildPreviewUrl(publicSlug);
   const storedTargetUrl = customer.preview?.targetUrl || "";
   const storedFullUrl = customer.preview?.fullUrl || "";
-  const targetUrl =
+  let targetUrl =
     customer.base44?.previewUrl ||
     (storedTargetUrl &&
     storedTargetUrl !== storedFullUrl &&
     storedTargetUrl !== fullUrl
       ? storedTargetUrl
       : "");
+
+  if (!targetUrl && customer.base44?.editorUrl) {
+    targetUrl = customer.base44.editorUrl.replace(
+      "/editor",
+      "/editor/preview",
+    );
+  }
 
   if (!targetUrl) {
     return null;
