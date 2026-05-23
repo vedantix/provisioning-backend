@@ -46,9 +46,12 @@ export class FinanceController {
       subscriptionStatus: req.body.subscriptionStatus,
       paymentStatus: req.body.paymentStatus,
       isActive: req.body.isActive,
+      customerStatus: req.body.customerStatus,
+      websiteBuildStatus: req.body.websiteBuildStatus,
+      deploymentStatus: req.body.deploymentStatus,
     });
 
-    res.status(201).json({
+    res.status(result ? 201 : 200).json({
       data: result,
       requestId: req.ctx.requestId,
     });

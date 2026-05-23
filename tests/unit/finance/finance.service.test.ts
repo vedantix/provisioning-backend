@@ -23,6 +23,93 @@ beforeAll(async () => {
 });
 
 describe('FinanceService deletion', () => {
+  it('does not create finance records for customers that are not live yet', async () => {
+    const repository = {
+      getCustomerFinance: vi.fn().mockResolvedValue({ customerId: 'cust_1' }),
+      deleteCustomerFinance: vi.fn().mockResolvedValue(undefined),
+      deleteExpensesByCustomer: vi.fn().mockResolvedValue([]),
+    };
+    const customersRepository = {
+      getById: vi.fn().mockResolvedValue({
+        id: 'cust_1',
+        tenantId: 'default',
+        status: 'awaiting_approval',
+        websiteBuildStatus: 'PREVIEW_READY',
+        deployment: {},
+      }),
+    };
+
+    const service = new FinanceService(
+      repository as any,
+      {} as any,
+      customersRepository as any,
+    );
+    const result = await service.bootstrapCustomerFinance({
+      tenantId: 'default',
+      customerId: 'cust_1',
+      companyName: 'Preview BV',
+      packageCode: 'STARTER',
+      monthlyRevenue: 99,
+      monthlyInfraCost: 10,
+      oneTimeSetupCost: 999,
+    });
+
+    expect(result).toBeNull();
+    expect(repository.deleteCustomerFinance).toHaveBeenCalledWith(
+      'default',
+      'cust_1',
+    );
+    expect(repository.deleteExpensesByCustomer).toHaveBeenCalledWith(
+      'default',
+      'cust_1',
+    );
+  });
+
+  it('creates finance records when the customer is live', async () => {
+    const repository = {
+      getCustomerFinance: vi.fn().mockResolvedValue(null),
+      upsertCustomerFinance: vi.fn().mockResolvedValue(undefined),
+    };
+    const customersRepository = {
+      getById: vi.fn().mockResolvedValue({
+        id: 'cust_1',
+        tenantId: 'default',
+        status: 'active',
+        websiteBuildStatus: 'LIVE',
+        deployment: { status: 'SUCCEEDED' },
+      }),
+    };
+
+    const service = new FinanceService(
+      repository as any,
+      {} as any,
+      customersRepository as any,
+    );
+    const result = await service.bootstrapCustomerFinance({
+      tenantId: 'default',
+      customerId: 'cust_1',
+      companyName: 'Live BV',
+      packageCode: 'STARTER',
+      monthlyRevenue: 99,
+      monthlyInfraCost: 10,
+      oneTimeSetupCost: 999,
+    });
+
+    expect(result).toMatchObject({
+      customerId: 'cust_1',
+      monthlyRevenue: 99,
+      monthlyInfraCost: 10,
+      oneTimeSetupCost: 999,
+      isActive: true,
+    });
+    expect(repository.upsertCustomerFinance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customerId: 'cust_1',
+        monthlyRevenue: 99,
+      }),
+    );
+  });
+
   it('deletes a customer finance record and all linked expenses', async () => {
     const expenses = [
       { id: 'exp_1', customerId: 'cust_1' },

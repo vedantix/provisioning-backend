@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import { FinanceRepository } from '../repositories/finance.repository';
 import { FinancePricingService } from './finance-pricing.service';
+import { CustomersRepository } from '../../customers/repositories/customers.repository';
+import type { CustomerRecord } from '../../customers/types/customer.types';
 import type {
   CustomerFinanceDetails,
   CustomerFinanceRecord,
@@ -50,10 +52,31 @@ function isWithinRange(dateString: string, range: FinanceRange): boolean {
   }
 }
 
+function isLiveCustomer(customer?: CustomerRecord | null): boolean {
+  return Boolean(
+    customer?.status === 'active' ||
+      customer?.websiteBuildStatus === 'LIVE' ||
+      customer?.deployment?.status === 'SUCCEEDED',
+  );
+}
+
+function isLiveBootstrapInput(input: {
+  customerStatus?: string;
+  websiteBuildStatus?: string;
+  deploymentStatus?: string;
+}): boolean {
+  return Boolean(
+    input.customerStatus === 'active' ||
+      input.websiteBuildStatus === 'LIVE' ||
+      input.deploymentStatus === 'SUCCEEDED',
+  );
+}
+
 export class FinanceService {
   constructor(
     private readonly financeRepository = new FinanceRepository(),
     private readonly pricingService = new FinancePricingService(),
+    private readonly customersRepository = new CustomersRepository(),
   ) {}
 
   async bootstrapCustomerFinance(input: {
@@ -70,12 +93,31 @@ export class FinanceService {
     subscriptionStatus?: string;
     paymentStatus?: string;
     isActive?: boolean;
-  }): Promise<CustomerFinanceRecord> {
+    customerStatus?: string;
+    websiteBuildStatus?: string;
+    deploymentStatus?: string;
+  }): Promise<CustomerFinanceRecord | null> {
     const now = new Date().toISOString();
-    const existing = await this.financeRepository.getCustomerFinance(
-      input.tenantId,
-      input.customerId,
-    );
+    const [existing, customer] = await Promise.all([
+      this.financeRepository.getCustomerFinance(input.tenantId, input.customerId),
+      this.customersRepository.getById(input.customerId).catch(() => null),
+    ]);
+
+    const customerExistsForTenant =
+      customer && customer.tenantId === input.tenantId;
+    const isLive =
+      customer
+        ? Boolean(customerExistsForTenant && isLiveCustomer(customer))
+        : isLiveBootstrapInput(input);
+
+    if (!isLive) {
+      await Promise.all([
+        this.financeRepository.deleteCustomerFinance(input.tenantId, input.customerId),
+        this.financeRepository.deleteExpensesByCustomer(input.tenantId, input.customerId),
+      ]);
+      return null;
+    }
+
     const monthlyRevenue =
       input.monthlyRevenue === undefined || input.monthlyRevenue === null
         ? this.pricingService.getMonthlyRevenue(
