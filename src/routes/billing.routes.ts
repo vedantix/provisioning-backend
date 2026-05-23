@@ -2,8 +2,11 @@ import { Router } from 'express';
 import Stripe from 'stripe';
 import { requireAdminAuthMiddleware } from '../middleware/require-admin-auth.middleware';
 import { requireActorContextMiddleware } from '../middleware/require-actor-context.middleware';
+import { CustomersRepository } from '../modules/customers/repositories/customers.repository';
+import type { CustomerRecord } from '../modules/customers/types/customer.types';
 
 const router = Router();
+const customersRepository = new CustomersRepository();
 
 function getStripe(): Stripe {
   const secretKey = process.env.STRIPE_SECRET_KEY;
@@ -57,6 +60,56 @@ function getPackagePrices(packageCode: string): { monthly?: string; setup?: stri
   };
 
   return packages[packageCode] || {};
+}
+
+function isLiveCustomer(customer?: CustomerRecord | null): boolean {
+  return Boolean(
+    customer?.status === 'active' ||
+      customer?.websiteBuildStatus === 'LIVE' ||
+      customer?.deployment?.status === 'SUCCEEDED',
+  );
+}
+
+async function assertInvoiceAllowed(req: any): Promise<void> {
+  const internalCustomerId = String(
+    req.body?.internalCustomerId || req.body?.customerRecordId || '',
+  ).trim();
+
+  if (!internalCustomerId) {
+    return;
+  }
+
+  const customer = await customersRepository.getById(internalCustomerId);
+  const tenantId = String(req.ctx?.tenantId || 'default');
+
+  if (!customer || customer.tenantId !== tenantId) {
+    const error = new Error('Customer not found');
+    (error as any).statusCode = 404;
+    throw error;
+  }
+
+  if (!isLiveCustomer(customer)) {
+    const error = new Error('De eerste maand mag pas worden gefactureerd nadat de website live staat.');
+    (error as any).statusCode = 409;
+    throw error;
+  }
+}
+
+async function getPriceAmount(
+  stripe: Stripe,
+  priceId: string,
+): Promise<{ amount: number; currency: string } | null> {
+  if (!priceId) return null;
+
+  const price = await stripe.prices.retrieve(priceId);
+  const amount = Number(price.unit_amount || 0);
+  const currency = String(price.currency || 'eur').toLowerCase();
+
+  if (!amount || amount < 0) {
+    return null;
+  }
+
+  return { amount, currency };
 }
 
 router.get('/health', (_req, res) => {
@@ -159,6 +212,115 @@ router.post('/checkout-session', async (req, res, next) => {
       lineItems,
     });
   } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/first-invoice', async (req, res, next) => {
+  try {
+    await assertInvoiceAllowed(req);
+
+    const stripe = getStripe();
+    const customerId = getStripeCustomerId(req.body);
+    const packageCode = normalizePackageCode(
+      req.body?.packageCode || req.body?.package || req.body?.planCode
+    );
+    const packagePrices = getPackagePrices(packageCode);
+    const monthlyPriceId = String(
+      req.body?.priceId || packagePrices.monthly || getDefaultPriceId()
+    ).trim();
+    const setupPriceId = String(
+      req.body?.setupPriceId || packagePrices.setup || ''
+    ).trim();
+    const daysUntilDue = Number(req.body?.daysUntilDue || 14);
+
+    if (!customerId) {
+      res.status(400).json({ error: 'Stripe customer ID is required' });
+      return;
+    }
+
+    if (!monthlyPriceId) {
+      res.status(400).json({ error: 'Stripe monthly price ID is required.' });
+      return;
+    }
+
+    const monthlyPrice = await getPriceAmount(stripe, monthlyPriceId);
+    if (!monthlyPrice) {
+      res.status(400).json({ error: 'Stripe monthly price has no invoiceable amount.' });
+      return;
+    }
+
+    const setupPrice = await getPriceAmount(stripe, setupPriceId);
+    const invoiceItems: Stripe.InvoiceItem[] = [];
+
+    if (setupPrice?.amount) {
+      invoiceItems.push(
+        await stripe.invoiceItems.create({
+          customer: customerId,
+          amount: setupPrice.amount,
+          currency: setupPrice.currency,
+          description: `Setup ${packageCode || 'website'}`,
+        }),
+      );
+    }
+
+    invoiceItems.push(
+      await stripe.invoiceItems.create({
+        customer: customerId,
+        amount: monthlyPrice.amount,
+        currency: monthlyPrice.currency,
+        description: `Eerste maand ${packageCode || 'website'}`,
+      }),
+    );
+
+    const invoice = await stripe.invoices.create({
+      customer: customerId,
+      collection_method: 'send_invoice',
+      days_until_due: Number.isFinite(daysUntilDue) ? daysUntilDue : 14,
+      auto_advance: false,
+      metadata: {
+        internalCustomerId: String(req.body?.internalCustomerId || ''),
+        packageCode,
+        invoiceType: 'FIRST_MONTH',
+      },
+    });
+
+    if (!invoice.id) {
+      res.status(500).json({ error: 'Stripe invoice ID ontbreekt.' });
+      return;
+    }
+
+    const finalized = await stripe.invoices.finalizeInvoice(invoice.id);
+    if (!finalized.id) {
+      res.status(500).json({ error: 'Stripe finalized invoice ID ontbreekt.' });
+      return;
+    }
+
+    const sent = await stripe.invoices.sendInvoice(finalized.id);
+
+    res.json({
+      success: true,
+      invoiceId: sent.id,
+      number: sent.number,
+      status: sent.status,
+      hostedInvoiceUrl: sent.hosted_invoice_url,
+      invoicePdf: sent.invoice_pdf,
+      invoiceItems: invoiceItems.map((item) => ({
+        id: item.id,
+        amount: item.amount,
+        currency: item.currency,
+        description: item.description,
+      })),
+    });
+  } catch (error) {
+    const statusCode = Number((error as any)?.statusCode || 0);
+    if (statusCode) {
+      res.status(statusCode).json({
+        error: error instanceof Error ? error.message : 'Invoice could not be sent',
+      });
+      return;
+    }
+
     next(error);
   }
 });
