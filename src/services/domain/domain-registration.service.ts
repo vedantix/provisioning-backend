@@ -6,6 +6,7 @@ import {
   type ContactDetail,
 } from '@aws-sdk/client-route-53-domains';
 import { env } from '../../config/env';
+import { normalizePostalCodeForCountry } from '../../utils/contact.util';
 
 type RegistrationAvailability =
   | 'AVAILABLE'
@@ -55,6 +56,14 @@ function requireRegistrationConfig(name: string, value?: string): string {
 function buildDomainContact(): ContactDetail {
   const contactType = env.domainContactType as ContactDetail['ContactType'];
   const organizationName = env.domainContactOrganizationName?.trim();
+  const countryCode = env.domainContactCountryCode as ContactDetail['CountryCode'];
+  const postalCode = normalizePostalCodeForCountry(
+    env.domainContactCountryCode,
+    requireRegistrationConfig(
+      'DOMAIN_CONTACT_POSTAL_CODE',
+      env.domainContactPostalCode,
+    ),
+  );
 
   if (contactType !== 'PERSON' && !organizationName) {
     throw new Error(
@@ -80,11 +89,8 @@ function buildDomainContact(): ContactDetail {
     AddressLine2: env.domainContactAddressLine2,
     City: requireRegistrationConfig('DOMAIN_CONTACT_CITY', env.domainContactCity),
     State: env.domainContactState,
-    CountryCode: env.domainContactCountryCode as ContactDetail['CountryCode'],
-    ZipCode: requireRegistrationConfig(
-      'DOMAIN_CONTACT_POSTAL_CODE',
-      env.domainContactPostalCode,
-    ),
+    CountryCode: countryCode,
+    ZipCode: postalCode,
     PhoneNumber: requireRegistrationConfig(
       'DOMAIN_CONTACT_PHONE',
       env.domainContactPhone,
