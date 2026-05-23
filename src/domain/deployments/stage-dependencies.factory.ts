@@ -56,6 +56,17 @@ class StageDependenciesFactoryImpl implements StageDependencies {
     const result = await checkDomainAvailability(input.domain);
 
     if (!result.canProceed) {
+      if (result.status === 'DELEGATION_PENDING') {
+        const expectedNameServers = result.expectedNameServers ?? [];
+        const nameserverText = expectedNameServers.length
+          ? expectedNameServers.join(', ')
+          : 'geen nameservers ontvangen van Route53';
+
+        throw new Error(
+          `Route53 hosted zone ${result.hostedZoneCreated ? 'created' : 'found'} for ${result.rootDomain}, but nameserver delegation is still pending. Set the registrar nameservers to: ${nameserverText}`,
+        );
+      }
+
       throw new Error(
         `Domain cannot be used: ${input.domain} (${result.status})`,
       );
@@ -69,6 +80,10 @@ class StageDependenciesFactoryImpl implements StageDependencies {
       domain: result.domain,
       rootDomain: result.rootDomain,
       hostedZoneId: result.hostedZoneId,
+      hostedZoneName: result.hostedZoneName,
+      hostedZoneCreated: result.hostedZoneCreated,
+      expectedNameServers: result.expectedNameServers,
+      actualNameServers: result.actualNameServers,
     };
   }
 
@@ -311,4 +326,3 @@ class StageDependenciesFactoryImpl implements StageDependencies {
 export function createStageDependencies(): StageDependencies {
   return new StageDependenciesFactoryImpl();
 }
-

@@ -82,6 +82,9 @@ export type ManagedResources = {
   oacId?: string;
   repoName?: string;
   hostedZoneId?: string;
+  hostedZoneName?: string;
+  route53NameServers?: string[];
+  actualNameServers?: string[];
   route53AliasRecords?: string[];
   validationRecordFqdns?: string[];
   workflowRunId?: string;

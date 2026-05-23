@@ -2,6 +2,10 @@ export type DomainCheckResult = {
   domain: string;
   rootDomain: string;
   hostedZoneId: string;
+  hostedZoneName?: string;
+  hostedZoneCreated?: boolean;
+  expectedNameServers?: string[];
+  actualNameServers?: string[];
 };
 
 export type GitHubProvisionResult = {

@@ -553,6 +553,17 @@ export async function deployWebsite(input: DeployRequest) {
     const availability = await checkDomainAvailability(normalizedDomain);
 
     if (!availability.canProceed) {
+      if (availability.status === "DELEGATION_PENDING") {
+        const expectedNameServers = availability.expectedNameServers ?? [];
+        const nameserverText = expectedNameServers.length
+          ? expectedNameServers.join(", ")
+          : "geen nameservers ontvangen van Route53";
+
+        throw new Error(
+          `Route53 hosted zone ${availability.hostedZoneCreated ? "created" : "found"} for ${availability.rootDomain}, but nameserver delegation is still pending. Set the registrar nameservers to: ${nameserverText}`
+        );
+      }
+
       throw new Error(
         `Domain check failed for ${normalizedDomain}: ${availability.status}`
       );

@@ -1,6 +1,8 @@
 import dns from "node:dns/promises";
 import axios from "axios";
 import {
+  CreateHostedZoneCommand,
+  GetHostedZoneCommand,
   Route53Client,
   ListHostedZonesByNameCommand,
   HostedZone,
@@ -11,6 +13,7 @@ export type DomainCheckStatus =
   | "AVAILABLE"
   | "INVALID"
   | "HOSTED_ZONE_NOT_FOUND"
+  | "DELEGATION_PENDING"
   | "RECORD_CONFLICT"
   | "HTTP_ACTIVE";
 
@@ -19,6 +22,9 @@ export type DomainCheckResult = {
   rootDomain: string;
   hostedZoneId?: string;
   hostedZoneName?: string;
+  hostedZoneCreated?: boolean;
+  expectedNameServers?: string[];
+  actualNameServers?: string[];
   status: DomainCheckStatus;
   canProceed: boolean;
   details: Record<string, unknown>;
@@ -82,9 +88,31 @@ function isMatchingHostedZone(zone: HostedZone, wantedFqdn: string): boolean {
   return wantedFqdn === zone.Name || wantedFqdn.endsWith(zone.Name);
 }
 
+function normalizeNameServer(value: string): string {
+  return value.trim().toLowerCase().replace(/\.$/, "");
+}
+
+function hasRoute53Delegation(
+  expectedNameServers: string[],
+  actualNameServers: string[]
+): boolean {
+  const expected = expectedNameServers.map(normalizeNameServer).sort();
+  const actual = new Set(actualNameServers.map(normalizeNameServer));
+
+  return expected.length > 0 && expected.every((nameServer) => actual.has(nameServer));
+}
+
+async function resolveNameServersSafe(rootDomain: string): Promise<string[]> {
+  try {
+    return (await dns.resolveNs(rootDomain)).map(normalizeNameServer).sort();
+  } catch {
+    return [];
+  }
+}
+
 async function findBestHostedZone(
   rootDomain: string
-): Promise<{ id: string; name: string } | null> {
+): Promise<{ id: string; name: string; nameServers: string[] } | null> {
   const response = await route53.send(
     new ListHostedZonesByNameCommand({
       DNSName: rootDomain,
@@ -103,10 +131,77 @@ async function findBestHostedZone(
     return null;
   }
 
+  const zone = await route53.send(
+    new GetHostedZoneCommand({
+      Id: match.Id,
+    })
+  );
+
   return {
     id: match.Id.replace("/hostedzone/", ""),
     name: match.Name,
+    nameServers: (zone.DelegationSet?.NameServers ?? [])
+      .map(normalizeNameServer)
+      .sort(),
   };
+}
+
+async function createHostedZone(
+  rootDomain: string
+): Promise<{ id: string; name: string; nameServers: string[]; created: boolean }> {
+  try {
+    const result = await route53.send(
+      new CreateHostedZoneCommand({
+        Name: rootDomain,
+        CallerReference: `vedantix-${rootDomain}-${Date.now()}`,
+        HostedZoneConfig: {
+          Comment: `Created by Vedantix provisioning for ${rootDomain}`,
+        },
+      })
+    );
+
+    if (!result.HostedZone?.Id || !result.HostedZone.Name) {
+      throw new Error(`Route53 did not return a hosted zone for ${rootDomain}`);
+    }
+
+    return {
+      id: result.HostedZone.Id.replace("/hostedzone/", ""),
+      name: result.HostedZone.Name,
+      nameServers: (result.DelegationSet?.NameServers ?? [])
+        .map(normalizeNameServer)
+        .sort(),
+      created: true,
+    };
+  } catch (error) {
+    const errorName =
+      error instanceof Error && "name" in error ? error.name : "";
+
+    if (errorName === "HostedZoneAlreadyExists") {
+      const existing = await findBestHostedZone(rootDomain);
+      if (existing) {
+        return {
+          ...existing,
+          created: false,
+        };
+      }
+    }
+
+    throw error;
+  }
+}
+
+async function ensureHostedZone(
+  rootDomain: string
+): Promise<{ id: string; name: string; nameServers: string[]; created: boolean }> {
+  const existing = await findBestHostedZone(rootDomain);
+  if (existing) {
+    return {
+      ...existing,
+      created: false,
+    };
+  }
+
+  return createHostedZone(rootDomain);
 }
 
 export async function checkDomainAvailability(
@@ -128,16 +223,30 @@ export async function checkDomainAvailability(
   }
 
   const rootDomain = parsed.domain;
-  const hostedZone = await findBestHostedZone(rootDomain);
+  const hostedZone = await ensureHostedZone(rootDomain);
+  const actualNameServers = await resolveNameServersSafe(rootDomain);
+  const delegated = hasRoute53Delegation(
+    hostedZone.nameServers,
+    actualNameServers
+  );
 
-  if (!hostedZone) {
+  if (!delegated) {
     return {
       domain,
       rootDomain,
-      status: "HOSTED_ZONE_NOT_FOUND",
+      hostedZoneId: hostedZone.id,
+      hostedZoneName: hostedZone.name,
+      hostedZoneCreated: hostedZone.created,
+      expectedNameServers: hostedZone.nameServers,
+      actualNameServers,
+      status: "DELEGATION_PENDING",
       canProceed: false,
       details: {
-        reason: `No Route53 hosted zone found for ${rootDomain}`,
+        reason: hostedZone.created
+          ? `Route53 hosted zone created for ${rootDomain}, but the domain is not delegated to Route53 yet`
+          : `Route53 hosted zone exists for ${rootDomain}, but the domain is not delegated to Route53 yet`,
+        expectedNameServers: hostedZone.nameServers,
+        actualNameServers,
       },
     };
   }
@@ -158,6 +267,9 @@ export async function checkDomainAvailability(
       rootDomain,
       hostedZoneId: hostedZone.id,
       hostedZoneName: hostedZone.name,
+      hostedZoneCreated: hostedZone.created,
+      expectedNameServers: hostedZone.nameServers,
+      actualNameServers,
       status: "RECORD_CONFLICT",
       canProceed: false,
       details: {
@@ -187,6 +299,9 @@ export async function checkDomainAvailability(
       rootDomain,
       hostedZoneId: hostedZone.id,
       hostedZoneName: hostedZone.name,
+      hostedZoneCreated: hostedZone.created,
+      expectedNameServers: hostedZone.nameServers,
+      actualNameServers,
       status: "HTTP_ACTIVE",
       canProceed: false,
       details: {
@@ -204,6 +319,9 @@ export async function checkDomainAvailability(
     rootDomain,
     hostedZoneId: hostedZone.id,
     hostedZoneName: hostedZone.name,
+    hostedZoneCreated: hostedZone.created,
+    expectedNameServers: hostedZone.nameServers,
+    actualNameServers,
     status: "AVAILABLE",
     canProceed: true,
     details: {
