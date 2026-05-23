@@ -348,6 +348,59 @@ export async function checkDomainAvailability(
           },
         };
       }
+    } else if (domainRegistration.submitted) {
+      if (
+        domainRegistration.operationStatus === "FAILED" ||
+        domainRegistration.operationStatus === "ERROR"
+      ) {
+        return {
+          domain,
+          rootDomain,
+          domainRegistration,
+          status: "DOMAIN_REGISTRATION_FAILED",
+          canProceed: false,
+          details: {
+            reason:
+              domainRegistration.errorMessage ||
+              domainRegistration.operationMessage ||
+              `Domain registration failed for ${rootDomain}`,
+            domainRegistration,
+          },
+        };
+      }
+
+      if (domainRegistration.operationStatus !== "SUCCESSFUL") {
+        return {
+          domain,
+          rootDomain,
+          domainRegistration,
+          status: "DOMAIN_REGISTRATION_PENDING",
+          canProceed: false,
+          details: {
+            reason:
+              domainRegistration.operationMessage ||
+              `Domain registration is still in progress for ${rootDomain}`,
+            domainRegistration,
+          },
+        };
+      }
+
+      hostedZone = await waitForHostedZoneAfterRegistration(rootDomain);
+      hostedZoneCreated = true;
+
+      if (!hostedZone) {
+        return {
+          domain,
+          rootDomain,
+          domainRegistration,
+          status: "DOMAIN_REGISTRATION_PENDING",
+          canProceed: false,
+          details: {
+            reason: `Domain registration succeeded for ${rootDomain}, but the Route53 hosted zone is not visible yet`,
+            domainRegistration,
+          },
+        };
+      }
     } else {
       const ensuredHostedZone = await ensureHostedZone(rootDomain);
       hostedZone = ensuredHostedZone;

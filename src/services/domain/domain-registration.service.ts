@@ -1,9 +1,11 @@
 import {
   CheckDomainAvailabilityCommand,
   GetOperationDetailCommand,
+  ListOperationsCommand,
   RegisterDomainCommand,
   Route53DomainsClient,
   type ContactDetail,
+  type OperationSummary,
 } from '@aws-sdk/client-route-53-domains';
 import { env } from '../../config/env';
 import { normalizePostalCodeForCountry } from '../../utils/contact.util';
@@ -146,6 +148,27 @@ async function getRegistrationAvailability(
   }
 }
 
+async function findLatestRegistrationOperation(
+  domain: string,
+): Promise<OperationSummary | undefined> {
+  const result = await client.send(
+    new ListOperationsCommand({
+      MaxItems: 20,
+      SortBy: 'SubmittedDate',
+      SortOrder: 'DESC',
+      Type: ['REGISTER_DOMAIN'],
+    }),
+  );
+
+  const normalizedDomain = domain.toLowerCase();
+
+  return result.Operations?.find(
+    (operation) =>
+      operation.Type === 'REGISTER_DOMAIN' &&
+      operation.DomainName?.toLowerCase() === normalizedDomain,
+  );
+}
+
 async function waitForRegistrationOperation(
   operationId: string,
 ): Promise<{
@@ -192,6 +215,34 @@ export async function registerDomainIfAvailable(
   const availability = await getRegistrationAvailability(domain);
 
   if (availability.availability !== 'AVAILABLE') {
+    const existingOperation = await findLatestRegistrationOperation(domain);
+    const existingOperationId = existingOperation?.OperationId;
+
+    if (existingOperationId) {
+      const existingStatus = normalizeOperationStatus(existingOperation.Status);
+
+      if (existingStatus === 'SUBMITTED' || existingStatus === 'IN_PROGRESS') {
+        const operation = await waitForRegistrationOperation(existingOperationId);
+
+        return {
+          enabled: env.domainRegistrationEnabled,
+          availability: availability.availability,
+          submitted: true,
+          operationId: existingOperationId,
+          ...operation,
+        };
+      }
+
+      return {
+        enabled: env.domainRegistrationEnabled,
+        availability: availability.availability,
+        submitted: true,
+        operationId: existingOperationId,
+        operationStatus: existingStatus,
+        operationMessage: existingOperation.Message,
+      };
+    }
+
     return {
       enabled: env.domainRegistrationEnabled,
       availability: availability.availability,
