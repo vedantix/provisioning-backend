@@ -7,6 +7,24 @@ import { OperationsRepository } from '../../repositories/operations.repository';
 import { DeploymentStateService } from './deployment-state.service';
 import { AuditService } from '../audit/audit.service';
 
+function removeUndefinedValues<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value
+      .filter((item) => item !== undefined)
+      .map((item) => removeUndefinedValues(item)) as T;
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, item]) => item !== undefined)
+        .map(([key, item]) => [key, removeUndefinedValues(item)]),
+    ) as T;
+  }
+
+  return value;
+}
+
 export class DeploymentOrchestratorService {
   constructor(
     private readonly deploymentsRepository = new DeploymentsRepository(),
@@ -104,11 +122,12 @@ export class DeploymentOrchestratorService {
   
     try {
       const output = await this.executeStage(deployment, stage);
+      const sanitizedOutput = output ? removeUndefinedValues(output) : output;
   
-      if (output?.managedResources) {
+      if (sanitizedOutput?.managedResources) {
         const nextManagedResources = {
           ...deployment.managedResources,
-          ...output.managedResources,
+          ...sanitizedOutput.managedResources,
         };
   
         await this.stateService.updateManagedResources(
@@ -117,7 +136,7 @@ export class DeploymentOrchestratorService {
         );
       }
   
-      await this.stateService.succeedStage(deploymentId, stage, output);
+      await this.stateService.succeedStage(deploymentId, stage, sanitizedOutput);
   
       await this.auditService.write({
         deploymentId: deployment.deploymentId,
