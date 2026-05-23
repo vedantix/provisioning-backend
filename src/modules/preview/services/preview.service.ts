@@ -98,6 +98,10 @@ function buildBase44PublicUrlFromName(value?: string): string {
   if (parseUrl(raw)) return "";
 
   const withoutHost = raw.replace(/\.base44\.app$/i, "");
+  if (!/^[a-z0-9-]+$/i.test(withoutHost)) {
+    return "";
+  }
+
   const slug = slugify(withoutHost);
 
   if (!slug || /^app-/.test(slug)) {

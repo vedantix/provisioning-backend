@@ -2,6 +2,7 @@ import { Router } from "express";
 import axios from "axios";
 import { asyncHandler } from "../../../middleware/async-handler";
 import { CustomersRepository } from "../../customers/repositories/customers.repository";
+import type { CustomerRecord } from "../../customers/types/customer.types";
 import { PreviewService } from "../services/preview.service";
 
 const router = Router();
@@ -27,6 +28,12 @@ function domainSlug(value: string): string {
     .split("#")[0];
 
   return slugify(domain.split(".").filter(Boolean)[0] || domain);
+}
+
+function unique(values: string[]): string[] {
+  return Array.from(
+    new Set(values.map((value) => String(value || "").trim()).filter(Boolean)),
+  );
 }
 
 function parseMaybeUrl(value: string): URL | null {
@@ -69,10 +76,133 @@ function normalizeDiscoveredBase44Url(value: string): string {
   return url.origin;
 }
 
-async function discoverPublicBase44Url(...values: Array<string | undefined>) {
+function normalizePreviewCandidateUrl(value?: string): string {
+  const url = parseMaybeUrl(String(value || ""));
+  if (!url) return "";
+
+  const hostname = url.hostname.toLowerCase();
+  if (
+    hostname === "app.base44.com" ||
+    hostname === "preview.vedantix.nl" ||
+    url.pathname.toLowerCase().includes("/editor")
+  ) {
+    return "";
+  }
+
+  url.hash = "";
+  return url.hostname.toLowerCase().endsWith(".base44.app")
+    ? url.origin
+    : url.toString();
+}
+
+function buildBase44UrlFromSlug(value: string): string {
+  const slug = slugify(value);
+  if (!slug || /^app-/.test(slug) || /^[a-f0-9-]{16,}$/i.test(slug)) {
+    return "";
+  }
+
+  return `https://${slug}.base44.app`;
+}
+
+function compactSlug(value: string): string {
+  return slugify(value).replace(/-/g, "");
+}
+
+function withGerundVariants(slug: string): string[] {
+  const parts = slug.split("-").filter(Boolean);
+  const variants = new Set([slug]);
+
+  parts.forEach((part, index) => {
+    if (!part.endsWith("ing") || part.length <= 4) return;
+
+    const next = [...parts];
+    next[index] = `${part.slice(0, -3)}s`;
+    variants.add(next.join("-"));
+  });
+
+  return Array.from(variants);
+}
+
+function extractLocationSlugs(customer: CustomerRecord): string[] {
+  const values = [
+    customer.city,
+    customer.address,
+    customer.notes,
+    customer.requestedPrompt,
+    customer.base44?.requestedPrompt,
+  ]
+    .map((value) => String(value || ""))
+    .filter(Boolean);
+  const locations: string[] = [];
+
+  if (customer.city) {
+    locations.push(slugify(customer.city), compactSlug(customer.city));
+  }
+
+  const text = values.join("\n");
+  const companySlug = slugify(customer.companyName);
+  const locationPattern =
+    /\b(?:in|te|voor)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = locationPattern.exec(text))) {
+    const location = match[1];
+    const slug = slugify(location);
+    if (
+      !slug ||
+      slug === companySlug ||
+      ["nederland", "growth", "starter", "pro"].includes(slug)
+    ) {
+      continue;
+    }
+
+    locations.push(slug, compactSlug(location));
+  }
+
+  return unique(locations);
+}
+
+function buildBase44PublicUrlCandidates(customer: CustomerRecord): string[] {
+  const directCandidates = [
+    customer.base44?.previewUrl,
+    customer.preview?.targetUrl,
+  ].map((value) => normalizeDiscoveredBase44Url(String(value || "")));
+  const rawAppName = String(customer.base44?.appName || "").trim();
+  const appNameSlug =
+    rawAppName && /^[a-z0-9-]+$/i.test(rawAppName)
+      ? slugify(rawAppName)
+      : "";
+  const baseSlugs = unique([
+    appNameSlug,
+    domainSlug(customer.domain),
+    slugify(customer.companyName),
+  ]).flatMap(withGerundVariants);
+  const locationSlugs = extractLocationSlugs(customer);
+  const combinedSlugs = baseSlugs.flatMap((baseSlug) => [
+    baseSlug,
+    ...locationSlugs.flatMap((locationSlug) => [
+      `${baseSlug}-${locationSlug}`,
+      `${baseSlug}-${locationSlug.replace(/-/g, "")}`,
+    ]),
+  ]);
+
+  return unique([...directCandidates, ...combinedSlugs.map(buildBase44UrlFromSlug)])
+    .filter(Boolean)
+    .slice(0, 24);
+}
+
+function extractDiscoveredBase44Urls(html: string): string[] {
+  const matches =
+    String(html || "").match(/https?:\/\/[a-z0-9-]+\.base44\.app/gi) || [];
+
+  return unique(matches.map(normalizeDiscoveredBase44Url)).filter(Boolean);
+}
+
+async function discoverPublicBase44Urls(...values: Array<string | undefined>) {
   const candidates = values
     .map((value) => String(value || "").trim())
     .filter((value) => value && isEditorLikePreviewUrl(value));
+  const discovered: string[] = [];
 
   for (const candidate of candidates) {
     try {
@@ -81,15 +211,7 @@ async function discoverPublicBase44Url(...values: Array<string | undefined>) {
         timeout: 5000,
         validateStatus: (status) => status >= 200 && status < 500,
       });
-      const matches =
-        String(response.data || "").match(/https?:\/\/[a-z0-9-]+\.base44\.app/gi) || [];
-
-      for (const match of matches) {
-        const publicUrl = normalizeDiscoveredBase44Url(match);
-        if (publicUrl) {
-          return publicUrl;
-        }
-      }
+      discovered.push(...extractDiscoveredBase44Urls(response.data));
     } catch (error) {
       console.warn("[PREVIEW_BASE44_DISCOVERY_FAILED]", {
         candidate,
@@ -98,7 +220,7 @@ async function discoverPublicBase44Url(...values: Array<string | undefined>) {
     }
   }
 
-  return "";
+  return unique(discovered);
 }
 
 function jsonForScript(value: string): string {
@@ -197,6 +319,63 @@ function rewritePreviewHtml(html: string, targetUrl: string, previewPath: string
   return `${runtime}${rewritten}`;
 }
 
+function isLikelyHtml(value: string): boolean {
+  const snippet = String(value || "").slice(0, 4000).toLowerCase();
+  return (
+    snippet.includes("<!doctype html") ||
+    snippet.includes("<html") ||
+    snippet.includes("<head") ||
+    snippet.includes("<body") ||
+    snippet.includes('id="root"')
+  );
+}
+
+async function fetchPreviewHtmlCandidate(targetUrl: string) {
+  const normalizedTargetUrl = normalizePreviewCandidateUrl(targetUrl);
+  if (!normalizedTargetUrl) return null;
+
+  try {
+    const response = await axios.get<string>(normalizedTargetUrl, {
+      responseType: "text",
+      timeout: 10000,
+      validateStatus: (status) => status >= 200 && status < 500,
+    });
+    const body = String(response.data || "");
+
+    if (
+      response.status >= 200 &&
+      response.status < 400 &&
+      isLikelyHtml(body)
+    ) {
+      return { targetUrl: normalizedTargetUrl, html: body };
+    }
+
+    console.warn("[PREVIEW_TARGET_UNAVAILABLE]", {
+      targetUrl: normalizedTargetUrl,
+      status: response.status,
+      contentType: response.headers["content-type"],
+    });
+  } catch (error) {
+    console.warn("[PREVIEW_TARGET_FETCH_FAILED]", {
+      targetUrl: normalizedTargetUrl,
+      message: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+
+  return null;
+}
+
+async function fetchFirstAvailablePreviewHtml(targetUrls: string[]) {
+  for (const targetUrl of targetUrls) {
+    const result = await fetchPreviewHtmlCandidate(targetUrl);
+    if (result) {
+      return result;
+    }
+  }
+
+  return null;
+}
+
 async function resolvePreview(slug: string, tenantId: string) {
   const normalizedSlug = slugify(slug);
   const customers = await repo.listByTenant(tenantId);
@@ -231,18 +410,27 @@ async function resolvePreview(slug: string, tenantId: string) {
     storedTargetUrl !== fullUrl
       ? storedTargetUrl
       : "";
-  const targetUrl =
-    (await discoverPublicBase44Url(
+  const discoveredTargetUrls = await discoverPublicBase44Urls(
+    customer.base44?.previewUrl,
+    customer.base44?.editorUrl,
+    fallbackTargetUrl,
+  );
+  const resolvedTargetUrl = previewService.resolvePreviewTargetUrl({
+    base44PreviewUrl: customer.base44?.previewUrl,
+    base44EditorUrl: customer.base44?.editorUrl,
+    base44AppName: customer.base44?.appName,
+    fallbackTargetUrl,
+  });
+  const targetCandidates = unique(
+    [
+      ...discoveredTargetUrls,
+      resolvedTargetUrl,
       customer.base44?.previewUrl,
-      customer.base44?.editorUrl,
       fallbackTargetUrl,
-    )) ||
-    previewService.resolvePreviewTargetUrl({
-      base44PreviewUrl: customer.base44?.previewUrl,
-      base44EditorUrl: customer.base44?.editorUrl,
-      base44AppName: customer.base44?.appName,
-      fallbackTargetUrl,
-    });
+      ...buildBase44PublicUrlCandidates(customer),
+    ].map((value) => normalizePreviewCandidateUrl(value)),
+  );
+  const targetUrl = targetCandidates[0] || "";
 
   if (!targetUrl) {
     return null;
@@ -258,6 +446,7 @@ async function resolvePreview(slug: string, tenantId: string) {
       status: customer.preview?.status || "READY",
       updatedAt: customer.preview?.updatedAt,
     },
+    targetCandidates,
   };
 }
 
@@ -271,14 +460,18 @@ router.get(
       return res.status(404).send("Preview not found");
     }
 
-    const response = await axios.get<string>(result.preview.targetUrl, {
-      responseType: "text",
-      timeout: 15000,
-      validateStatus: (status) => status >= 200 && status < 400,
-    });
+    const response = await fetchFirstAvailablePreviewHtml(result.targetCandidates);
+    if (!response) {
+      return res
+        .status(404)
+        .send(
+          "Preview target not reachable. Controleer de publieke Base44 URL in het admin panel.",
+        );
+    }
+
     const html = rewritePreviewHtml(
-      response.data,
-      result.preview.targetUrl,
+      response.html,
+      response.targetUrl,
       result.preview.path,
     );
 
@@ -328,9 +521,18 @@ router.get(
       return res.status(404).send("Preview not found");
     }
 
+    const response = await fetchFirstAvailablePreviewHtml(result.targetCandidates);
+    if (!response) {
+      return res
+        .status(404)
+        .send(
+          "Preview target not reachable. Controleer de publieke Base44 URL in het admin panel.",
+        );
+    }
+
     res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
     res.setHeader("Cache-Control", "no-store");
-    return res.redirect(result.preview.targetUrl);
+    return res.redirect(response.targetUrl);
   }),
 );
 

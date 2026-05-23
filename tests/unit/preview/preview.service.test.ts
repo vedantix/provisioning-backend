@@ -67,6 +67,16 @@ describe('PreviewService', () => {
     });
   });
 
+  it('does not invent a Base44 public URL from a human app name', () => {
+    const service = new PreviewService();
+
+    expect(
+      service.resolveBase44PublicUrl({
+        base44AppName: 'Nature Healing',
+      }),
+    ).toBe('');
+  });
+
   it('does not use the Base44 editor preview as a safe target', () => {
     const service = new PreviewService();
 
