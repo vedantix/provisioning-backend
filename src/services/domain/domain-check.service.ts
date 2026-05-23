@@ -560,6 +560,58 @@ export async function checkDomainAvailability(
       hostedZone = registeredHostedZone;
       hostedZoneCreated = true;
       delegated = hasRoute53Delegation(hostedZone.nameServers, actualNameServers);
+    } else if (domainRegistration.submitted) {
+      if (
+        domainRegistration.operationStatus === "FAILED" ||
+        domainRegistration.operationStatus === "ERROR"
+      ) {
+        return {
+          domain,
+          rootDomain,
+          hostedZoneId: hostedZone.id,
+          hostedZoneName: hostedZone.name,
+          hostedZoneCreated,
+          expectedNameServers: hostedZone.nameServers,
+          actualNameServers,
+          domainRegistration,
+          status: "DOMAIN_REGISTRATION_FAILED",
+          canProceed: false,
+          details: {
+            reason:
+              domainRegistration.errorMessage ||
+              domainRegistration.operationMessage ||
+              `Domain registration failed for ${rootDomain}`,
+            domainRegistration,
+          },
+        };
+      }
+
+      if (domainRegistration.operationStatus !== "SUCCESSFUL") {
+        return {
+          domain,
+          rootDomain,
+          hostedZoneId: hostedZone.id,
+          hostedZoneName: hostedZone.name,
+          hostedZoneCreated,
+          expectedNameServers: hostedZone.nameServers,
+          actualNameServers,
+          domainRegistration,
+          status: "DOMAIN_REGISTRATION_PENDING",
+          canProceed: false,
+          details: {
+            reason:
+              domainRegistration.operationMessage ||
+              `Domain registration is still in progress for ${rootDomain}`,
+            domainRegistration,
+          },
+        };
+      }
+
+      actualNameServers = await waitForRoute53Delegation(
+        rootDomain,
+        hostedZone.nameServers
+      );
+      delegated = hasRoute53Delegation(hostedZone.nameServers, actualNameServers);
     }
   }
 
