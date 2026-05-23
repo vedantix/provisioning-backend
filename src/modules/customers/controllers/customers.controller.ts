@@ -535,7 +535,9 @@ export class CustomersController {
 
     ensureContentSynced(deploymentCustomer);
 
-    if (req.body.provisionMail !== false) {
+    const shouldProvisionMail = req.body.provisionMail === true;
+
+    if (shouldProvisionMail) {
       await this.mailProvisioningService.provisionPackageMail({
         customerId: deploymentCustomer.id,
         domain: deploymentCustomer.domain,
@@ -591,7 +593,7 @@ export class CustomersController {
             deploymentId: existingOperation.deploymentId,
             status: existingOperation.status,
             liveDomain: deploymentCustomer.domain,
-            mailProvisioned: req.body.provisionMail !== false,
+            mailProvisioned: shouldProvisionMail,
           },
           requestId: req.ctx.requestId,
         });
@@ -673,7 +675,7 @@ export class CustomersController {
         status: deployment.status,
         currentStage: deployment.currentStage ?? null,
         liveDomain: deploymentCustomer.domain,
-        mailProvisioned: req.body.provisionMail !== false,
+        mailProvisioned: shouldProvisionMail,
       },
       requestId: req.ctx.requestId,
     });
