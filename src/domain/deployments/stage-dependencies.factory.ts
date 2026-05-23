@@ -36,6 +36,11 @@ import {
 import {
   provisionRepository,
 } from '../../services/github/github-provision.service';
+import {
+  generateBuildScript,
+  generateIndexHtml,
+  generatePackageJson,
+} from '../../services/template/site-template.service';
 
 import {
   dispatchDeploymentWorkflow,
@@ -123,57 +128,46 @@ class StageDependenciesFactoryImpl implements StageDependencies {
   }) {
     const repoName =
       input.projectName?.trim() || this.slugify(input.domain);
+    const hasSourceRepository = Boolean(input.projectName?.trim());
+    const files = [
+      {
+        path: '.github/workflows/deploy.yml',
+        content: buildDeployWorkflow(),
+        message: 'Add deploy workflow',
+      },
+      ...(hasSourceRepository
+        ? []
+        : [
+            {
+              path: '.gitignore',
+              content: `node_modules
+dist
+.env
+`,
+              message: 'Add gitignore',
+            },
+            {
+              path: 'package.json',
+              content: generatePackageJson(),
+              message: 'Add package.json',
+            },
+            {
+              path: 'scripts/build.js',
+              content: generateBuildScript(),
+              message: 'Add static build script',
+            },
+            {
+              path: 'index.html',
+              content: generateIndexHtml(input.domain),
+              message: 'Add placeholder site',
+            },
+          ]),
+    ];
   
     const result = await provisionRepository(
       repoName,
       input.domain,
-      [
-        {
-          path: '.github/workflows/deploy.yml',
-          content: buildDeployWorkflow(),
-          message: 'Add deploy workflow',
-        },
-        {
-          path: '.gitignore',
-          content: `node_modules
-  dist
-  .env
-  `,
-          message: 'Add gitignore',
-        },
-        {
-          path: 'package.json',
-          content: JSON.stringify(
-            {
-              name: repoName,
-              private: true,
-              version: '1.0.0',
-              scripts: {
-                build: 'mkdir -p dist && cp -R . dist || true',
-              },
-            },
-            null,
-            2,
-          ),
-          message: 'Add package.json',
-        },
-        {
-          path: 'index.html',
-          content: `<!doctype html>
-  <html>
-    <head>
-      <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>${input.domain}</title>
-    </head>
-    <body>
-      <h1>${input.domain}</h1>
-      <p>Provisioned by Vedantix</p>
-    </body>
-  </html>`,
-          message: 'Add placeholder site',
-        },
-      ],
+      files,
     );
   
     if (!result.success) {

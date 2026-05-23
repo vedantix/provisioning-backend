@@ -63,6 +63,7 @@ jobs:
 
       - name: Build project
         run: |
+          rm -rf dist
           if [ -f package.json ] && node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts.build ? 0 : 1)"; then
             npm run build
           else
@@ -74,6 +75,10 @@ jobs:
         run: |
           test -d dist || (echo "dist folder not found" && exit 1)
           test -f dist/index.html || (echo "dist/index.html not found" && exit 1)
+          if [ -d dist/.git ] || [ -f dist/package.json ]; then
+            echo "Build output looks like the repository root instead of a production build"
+            exit 1
+          fi
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
