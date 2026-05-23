@@ -62,6 +62,38 @@ function parseAdditionalFiles(value: unknown) {
     .filter((item) => item.path.length > 0);
 }
 
+function resolveRepositoryName(input?: unknown): string {
+  const raw = String(input || '').trim();
+  if (!raw) return '';
+
+  const fromGithubUrl = (() => {
+    try {
+      const url = new URL(raw);
+      if (!url.hostname.toLowerCase().includes('github.com')) {
+        return '';
+      }
+
+      const parts = url.pathname
+        .replace(/\.git$/i, '')
+        .split('/')
+        .filter(Boolean);
+
+      return parts.length >= 2 ? parts[1] : '';
+    } catch {
+      return '';
+    }
+  })();
+
+  const candidate = fromGithubUrl || raw.split('/').filter(Boolean).pop() || raw;
+
+  return candidate
+    .trim()
+    .replace(/\.git$/i, '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 100);
+}
+
 function buildBase44Prompt(params: {
   companyName: string;
   domain: string;
@@ -447,8 +479,33 @@ export class CustomersController {
 
     let deploymentCustomer = customer;
     const indexHtml = String(req.body.indexHtml || '').trim();
+    const sourceRepositoryName = resolveRepositoryName(
+      req.body.repositoryName ||
+        req.body.repositoryUrl ||
+        deploymentCustomer.contentSync?.repositoryName ||
+        deploymentCustomer.deployment?.repositoryName,
+    );
 
-    if (indexHtml) {
+    if (sourceRepositoryName) {
+      deploymentCustomer = {
+        ...deploymentCustomer,
+        contentSync: {
+          ...(deploymentCustomer.contentSync || {}),
+          status: 'SYNCED',
+          repositoryName: sourceRepositoryName,
+          branch: deploymentCustomer.contentSync?.branch || 'main',
+          lastSyncedAt:
+            deploymentCustomer.contentSync?.lastSyncedAt || new Date().toISOString(),
+          source: 'BASE44_GITHUB',
+        },
+        deployment: {
+          ...(deploymentCustomer.deployment || {}),
+          repositoryName: sourceRepositoryName,
+        },
+      };
+    }
+
+    if (indexHtml && !sourceRepositoryName) {
       await this.contentSyncService.syncCustomerContent(deploymentCustomer, {
         customerId: deploymentCustomer.id,
         tenantId: req.ctx.tenantId,
@@ -498,6 +555,7 @@ export class CustomersController {
       createdBy: req.ctx.actorId,
       triggeredBy: req.ctx.actorId,
       idempotencyKey: req.ctx.idempotencyKey,
+      sourceRepositoryName: deploymentCustomer.contentSync?.repositoryName,
     });
 
     const requestHash =

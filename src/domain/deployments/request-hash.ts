@@ -11,6 +11,7 @@ export function createDeploymentRequestHash(
     rootDomain: input.rootDomain,
     packageCode: input.packageCode,
     addOns: input.addOns,
+    sourceRepositoryName: input.sourceRepositoryName,
   };
 
   return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');

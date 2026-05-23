@@ -108,7 +108,9 @@ export class IdempotencyService {
       lastSuccessfulStage: undefined,
       failureStage: undefined,
       stageStates: {},
-      managedResources: {},
+      managedResources: params.input.sourceRepositoryName
+        ? { repoName: params.input.sourceRepositoryName }
+        : {},
       domainBindings: [
         {
           domain: params.input.domain,

@@ -192,6 +192,7 @@ export type CreateDeploymentInput = {
   createdBy?: string;
   triggeredBy?: string;
   idempotencyKey?: string;
+  sourceRepositoryName?: string;
 };
 
 export type NormalizedCreateDeploymentInput = {
@@ -206,4 +207,5 @@ export type NormalizedCreateDeploymentInput = {
   createdBy?: string;
   triggeredBy?: string;
   idempotencyKey?: string;
+  sourceRepositoryName?: string;
 };

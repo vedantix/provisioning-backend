@@ -223,17 +223,10 @@ export class DeploymentOrchestratorService {
   private async handleGitHubProvision(
     deployment: DeploymentRecord,
   ): Promise<Record<string, unknown>> {
-    if (deployment.managedResources.repoName) {
-      return {
-        repoName: deployment.managedResources.repoName,
-        skipped: true,
-      };
-    }
-
     const result = await this.deps.githubProvision({
       customerId: deployment.customerId,
       domain: deployment.domain,
-      projectName: undefined,
+      projectName: deployment.managedResources.repoName || undefined,
       packageCode: deployment.packageCode,
       addOns: deployment.addOns,
     });
