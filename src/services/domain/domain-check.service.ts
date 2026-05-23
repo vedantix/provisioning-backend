@@ -12,6 +12,7 @@ import {
   registerDomainIfAvailable,
   type DomainRegistrationResult,
 } from "./domain-registration.service";
+import { env } from "../../config/env";
 
 export type DomainCheckStatus =
   | "AVAILABLE"
@@ -254,6 +255,29 @@ async function waitForHostedZoneAfterRegistration(
   return null;
 }
 
+async function waitForRoute53Delegation(
+  rootDomain: string,
+  expectedNameServers: string[]
+): Promise<string[]> {
+  const timeoutMs = Math.max(0, env.domainRegistrationWaitSeconds) * 1000;
+  const deadline = Date.now() + timeoutMs;
+  let actualNameServers: string[] = [];
+
+  while (Date.now() <= deadline) {
+    actualNameServers = await resolveNameServersSafe(rootDomain);
+
+    if (hasRoute53Delegation(expectedNameServers, actualNameServers)) {
+      return actualNameServers;
+    }
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, 15_000);
+    });
+  }
+
+  return actualNameServers;
+}
+
 export async function checkDomainAvailability(
   input: string
 ): Promise<DomainCheckResult> {
@@ -427,6 +451,18 @@ export async function checkDomainAvailability(
     hostedZone.nameServers,
     actualNameServers
   );
+
+  if (
+    !delegated &&
+    domainRegistration?.submitted &&
+    domainRegistration.operationStatus === "SUCCESSFUL"
+  ) {
+    actualNameServers = await waitForRoute53Delegation(
+      rootDomain,
+      hostedZone.nameServers
+    );
+    delegated = hasRoute53Delegation(hostedZone.nameServers, actualNameServers);
+  }
 
   if (!delegated && actualNameServers.length > 0) {
     const delegatedHostedZone = await findBestHostedZone(
