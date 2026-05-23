@@ -1,3 +1,8 @@
+import type {
+  MailDomainRecord,
+  MailboxRecord,
+} from '../../mail/types/mail.types';
+
 export type CustomerStatus =
   | 'lead'
   | 'intake'
@@ -157,6 +162,13 @@ export interface CustomerRecord {
   preview: PreviewInfo;
   contentSync?: ContentSyncInfo;
   deployment?: DeploymentInfo;
+  mailDomain?: MailDomainRecord;
+  mailboxes?: MailboxRecord[];
+  mail?: {
+    domainStatus?: string;
+    mailHostingEnabled?: boolean;
+    lastProvisionedAt?: string;
+  };
 
   deletedAt?: string;
   deletedBy?: string;

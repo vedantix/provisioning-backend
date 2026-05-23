@@ -3,6 +3,7 @@ export type DeploymentStatus =
   | 'IN_PROGRESS'
   | 'SUCCEEDED'
   | 'FAILED'
+  | 'OFFLINE'
   | 'DELETING'
   | 'DELETED';
 

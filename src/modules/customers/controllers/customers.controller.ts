@@ -17,6 +17,7 @@ import type { PackageCode } from '../../mail/types/mail.types';
 import { ContentSyncService } from '../../content-sync/services/content-sync.service';
 import { CustomerBuildFlowService } from '../../customer-workflow/services/customer-build-flow.service';
 import { PreviewService } from '../../preview/services/preview.service';
+import { OfflineDeploymentService } from '../../../domain/deployments/offline-deployment.service';
 
 const previewService = new PreviewService();
 
@@ -181,6 +182,7 @@ export class CustomersController {
     private readonly financeService = new FinanceService(),
     private readonly contentSyncService = new ContentSyncService(),
     private readonly customerBuildFlowService = new CustomerBuildFlowService(),
+    private readonly offlineDeploymentService = new OfflineDeploymentService(),
   ) {}
 
   createCustomer = async (req: Request, res: Response): Promise<void> => {
@@ -676,6 +678,65 @@ export class CustomersController {
         currentStage: deployment.currentStage ?? null,
         liveDomain: deploymentCustomer.domain,
         mailProvisioned: shouldProvisionMail,
+      },
+      requestId: req.ctx.requestId,
+    });
+  };
+
+  takeCustomerOffline = async (req: Request, res: Response): Promise<void> => {
+    const customerId = getSingleParam(req.params.customerId, 'customerId');
+    const customer = await this.customersService.getCustomerById(
+      req.ctx.tenantId,
+      customerId,
+    );
+
+    if (!customer) {
+      res.status(404).json({
+        error: 'Customer not found',
+        requestId: req.ctx.requestId,
+      });
+      return;
+    }
+
+    const deploymentId = String(
+      req.body.deploymentId || customer.deployment?.deploymentId || '',
+    ).trim();
+
+    if (!deploymentId) {
+      throw new ConflictHttpError(
+        'Deze klant heeft nog geen deployment om offline te halen.',
+      );
+    }
+
+    const deployment = await this.deploymentsRepository.getById(deploymentId);
+    if (!deployment || deployment.tenantId !== req.ctx.tenantId) {
+      res.status(404).json({
+        error: 'Deployment not found',
+        requestId: req.ctx.requestId,
+      });
+      return;
+    }
+
+    if (deployment.customerId !== customer.id) {
+      throw new ConflictHttpError(
+        'Deze deployment hoort niet bij de geselecteerde klant.',
+      );
+    }
+
+    const offline = await this.offlineDeploymentService.takeOffline({
+      deploymentId,
+      actorId: req.ctx.actorId,
+    });
+
+    const refreshed = await this.customersService.getCustomerById(
+      req.ctx.tenantId,
+      customer.id,
+    );
+
+    res.status(200).json({
+      data: {
+        customer: refreshed,
+        offline,
       },
       requestId: req.ctx.requestId,
     });

@@ -25,5 +25,6 @@ router.post('/customers/:customerId/content-sync', asyncHandler(controller.syncC
 router.post('/customers/:customerId/preview-ready', asyncHandler(controller.markPreviewReady));
 router.post('/customers/:customerId/approve', asyncHandler(controller.markApprovedForProduction));
 router.post('/customers/:customerId/deploy', asyncHandler(controller.deployCustomer));
+router.post('/customers/:customerId/offline', asyncHandler(controller.takeCustomerOffline));
 
 export default router;

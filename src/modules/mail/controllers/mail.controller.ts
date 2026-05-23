@@ -4,6 +4,8 @@ import { MailboxService } from '../services/mailbox.service';
 import { MailProvisioningService } from '../services/mail-provisioning.service';
 import { MailboxUsageService } from '../services/mailbox-usage.service';
 import type { PackageCode } from '../types/mail.types';
+import { CustomersRepository } from '../../customers/repositories/customers.repository';
+import { NotFoundError } from '../../../errors/app-error';
 
 function getSingleParam(value: string | string[] | undefined, name: string): string {
   if (typeof value === 'string' && value.trim()) {
@@ -23,6 +25,7 @@ export class MailController {
     private readonly mailboxService = new MailboxService(),
     private readonly mailProvisioningService = new MailProvisioningService(),
     private readonly mailboxUsageService = new MailboxUsageService(),
+    private readonly customersRepository = new CustomersRepository(),
   ) {}
 
   createDomain = async (req: Request, res: Response): Promise<void> => {
@@ -99,15 +102,34 @@ export class MailController {
 
   provisionCustomerMail = async (req: Request, res: Response): Promise<void> => {
     const customerId = getSingleParam(req.params.customerId, 'customerId');
+    const customer = await this.customersRepository.getById(customerId);
+
+    if (!customer || customer.tenantId !== req.ctx.tenantId) {
+      throw new NotFoundError('Customer not found');
+    }
 
     const result = await this.mailProvisioningService.provisionPackageMail({
       customerId,
-      domain: req.body.domain,
-      packageCode: req.body.packageCode,
+      domain: req.body.domain || customer.domain,
+      packageCode: req.body.packageCode || customer.packageCode,
       selectedMailboxes: req.body.selectedMailboxes,
     });
 
-    res.status(201).json(result);
+    const updatedCustomer = await this.customersRepository.markMailProvisioned({
+      customerId,
+      updatedAt: new Date().toISOString(),
+      updatedBy: req.ctx.actorId,
+      mailDomain: result.mailDomain,
+      mailboxes: result.mailboxes,
+    });
+
+    res.status(201).json({
+      data: {
+        ...result,
+        customer: updatedCustomer,
+      },
+      requestId: req.ctx.requestId,
+    });
   };
 
   getMailboxUsage = async (req: Request, res: Response): Promise<void> => {

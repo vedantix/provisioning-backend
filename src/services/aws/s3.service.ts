@@ -418,3 +418,18 @@ export async function emptyAndDeleteBucket(
     deleted: true
   };
 }
+
+export async function emptyBucketContents(
+  params: EmptyAndDeleteBucketParams
+): Promise<{
+  bucketName: string;
+  emptied: true;
+}> {
+  await deleteAllObjectVersions(params.bucketName);
+  await deleteAllCurrentObjects(params.bucketName);
+
+  return {
+    bucketName: params.bucketName,
+    emptied: true
+  };
+}

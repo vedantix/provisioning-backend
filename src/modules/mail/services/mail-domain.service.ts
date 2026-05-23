@@ -1,5 +1,6 @@
 import { MailDomainsRepository } from '../repositories/mail-domains.repository';
 import { createMailProvider } from '../providers/provider.factory';
+import { upsertMailDnsRecords } from '../../../services/aws/route53.service';
 import type {
   CreateMailDomainInput,
   MailDomainDnsResponse,
@@ -23,6 +24,9 @@ export class MailDomainService {
     if (existing) return existing;
 
     const created = await this.mailProvider.createDomain(domain);
+    if (created.dnsRecords?.length) {
+      await upsertMailDnsRecords(domain, created.dnsRecords);
+    }
 
     return this.domainsRepository.create({
       customerId: input.customerId ?? null,

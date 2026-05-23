@@ -20,6 +20,14 @@ type DnsValidationRecord = {
 
 type AliasRecordType = "A" | "AAAA";
 
+type MailDnsRecord = {
+  type: "TXT" | "MX" | "CNAME" | "SRV";
+  host: string;
+  value: string;
+  priority?: number;
+  ttl?: number;
+};
+
 function normalizeDnsName(value: string): string {
   return value.trim().toLowerCase().replace(/\.$/, "");
 }
@@ -193,6 +201,83 @@ function buildCloudFrontAliasRecord(params: {
   };
 }
 
+function toMailRecordName(domain: string, host: string): string {
+  const normalizedDomain = normalizeDnsName(domain);
+  const normalizedHost = normalizeDnsName(host || "@");
+
+  if (normalizedHost === "@") {
+    return toRoute53RecordName(normalizedDomain);
+  }
+
+  if (normalizedHost.endsWith(normalizedDomain)) {
+    return toRoute53RecordName(normalizedHost);
+  }
+
+  return toRoute53RecordName(`${normalizedHost}.${normalizedDomain}`);
+}
+
+function toMailRecordValue(record: MailDnsRecord): string {
+  const type = record.type.toUpperCase();
+  const value = record.value.trim();
+
+  if (type === "TXT") {
+    const escaped = value.replace(/"/g, '\\"');
+    return `"${escaped}"`;
+  }
+
+  if (type === "MX") {
+    return `${record.priority ?? 10} ${ensureTrailingDot(value)}`;
+  }
+
+  if (type === "CNAME") {
+    return ensureTrailingDot(value);
+  }
+
+  return value;
+}
+
+function buildMailDnsRecordSets(
+  domain: string,
+  records: MailDnsRecord[]
+): ResourceRecordSet[] {
+  const grouped = new Map<
+    string,
+    {
+      name: string;
+      type: RRType;
+      ttl: number;
+      values: string[];
+    }
+  >();
+
+  for (const record of records) {
+    const type = record.type.toUpperCase() as RRType;
+    const name = toMailRecordName(domain, record.host);
+    const ttl = record.ttl ?? 300;
+    const key = `${name}|${type}|${ttl}`;
+    const value = toMailRecordValue(record);
+    const existing = grouped.get(key);
+
+    if (existing) {
+      existing.values.push(value);
+    } else {
+      grouped.set(key, {
+        name,
+        type,
+        ttl,
+        values: [value],
+      });
+    }
+  }
+
+  return [...grouped.values()].map((group) => ({
+    Name: group.name,
+    Type: group.type,
+    TTL: group.ttl,
+    ResourceRecords: [...new Set(group.values)].map((Value) => ({ Value })),
+  }));
+}
+
 export async function upsertDnsValidationRecord(
   hostedZoneId: string,
   name: string,
@@ -313,6 +398,39 @@ export async function upsertCloudFrontAliasRecords(
     hostedZoneId,
     cloudFrontDomainName: normalizeDnsName(cloudFrontDomainName),
     upsertedDomains: normalizedDomains,
+  };
+}
+
+export async function upsertMailDnsRecords(
+  domain: string,
+  records: MailDnsRecord[]
+): Promise<{
+  hostedZoneId: string;
+  upsertedRecords: Array<{ name: string; type: string }>;
+}> {
+  const hostedZoneId = await findBestHostedZoneId(domain);
+  if (!hostedZoneId) {
+    throw new Error(`Hosted zone not found for mail domain ${domain}`);
+  }
+
+  const recordSets = buildMailDnsRecordSets(domain, records);
+  const upsertedRecords: Array<{ name: string; type: string }> = [];
+
+  for (const record of recordSets) {
+    await upsertRecord({
+      hostedZoneId,
+      record,
+    });
+
+    upsertedRecords.push({
+      name: normalizeDnsName(record.Name ?? ""),
+      type: String(record.Type),
+    });
+  }
+
+  return {
+    hostedZoneId,
+    upsertedRecords,
   };
 }
 

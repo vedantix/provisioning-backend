@@ -1,5 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import { mailConfig } from '../../../config/mail.config';
+import { AppError } from '../../../errors/app-error';
 import type { MailProvider } from './mail-provider.interface';
 import type {
   ProviderDnsRecord,
@@ -18,10 +19,59 @@ function normalizeEmail(localPart: string, domain: string): string {
 
 function requireMigaduConfig(name: string, value: string): string {
   if (!value.trim()) {
-    throw new Error(`[MAIL_CONFIG] Missing required environment variable: ${name}`);
+    throw new AppError(
+      `Mail provisioning is niet geconfigureerd. Ontbrekende environment variable: ${name}`,
+      409,
+      'MAIL_CONFIG_MISSING',
+      { missing: [name], provider: 'MIGADU' },
+    );
   }
 
   return value.trim();
+}
+
+function toMigaduError(error: unknown, action: string): AppError {
+  if (axios.isAxiosError(error)) {
+    const status = error.response?.status;
+    const details = {
+      provider: 'MIGADU',
+      action,
+      providerStatus: status,
+      providerMessage: error.response?.data,
+    };
+
+    if (status === 401 || status === 403) {
+      return new AppError(
+        'Migadu heeft de mail credentials geweigerd. Controleer MIGADU_USERNAME en MIGADU_PASSWORD.',
+        502,
+        'MAIL_PROVIDER_UNAUTHORIZED',
+        details,
+      );
+    }
+
+    if (status === 409 || status === 422) {
+      return new AppError(
+        `Migadu kon ${action} niet uitvoeren omdat het object waarschijnlijk al bestaat of ongeldig is.`,
+        409,
+        'MAIL_PROVIDER_CONFLICT',
+        details,
+      );
+    }
+
+    return new AppError(
+      `Migadu request mislukt bij ${action}.`,
+      502,
+      'MAIL_PROVIDER_ERROR',
+      details,
+    );
+  }
+
+  return new AppError(
+    error instanceof Error ? error.message : `Migadu request mislukt bij ${action}.`,
+    502,
+    'MAIL_PROVIDER_ERROR',
+    { provider: 'MIGADU', action },
+  );
 }
 
 export class MigaduMailProvider implements MailProvider {
@@ -62,7 +112,14 @@ export class MigaduMailProvider implements MailProvider {
 
   async createDomain(domain: string): Promise<ProviderDomainResult> {
     const normalizedDomain = normalizeDomain(domain);
-    await this.client().post('/domains', { domain_name: normalizedDomain });
+    try {
+      await this.client().post('/domains', { domain_name: normalizedDomain });
+    } catch (error) {
+      const mapped = toMigaduError(error, 'createDomain');
+      if (mapped.code !== 'MAIL_PROVIDER_CONFLICT') {
+        throw mapped;
+      }
+    }
 
     return {
       providerDomainId: normalizedDomain,
@@ -98,11 +155,18 @@ export class MigaduMailProvider implements MailProvider {
 
   async createMailbox(input: { domain: string; localPart: string; displayName: string; password?: string; }): Promise<ProviderMailboxResult> {
     const email = normalizeEmail(input.localPart, input.domain);
-    await this.client().post(`/domains/${encodeURIComponent(normalizeDomain(input.domain))}/mailboxes`, {
-      local_part: input.localPart,
-      name: input.displayName,
-      password: input.password,
-    });
+    try {
+      await this.client().post(`/domains/${encodeURIComponent(normalizeDomain(input.domain))}/mailboxes`, {
+        local_part: input.localPart,
+        name: input.displayName,
+        password: input.password,
+      });
+    } catch (error) {
+      const mapped = toMigaduError(error, 'createMailbox');
+      if (mapped.code !== 'MAIL_PROVIDER_CONFLICT') {
+        throw mapped;
+      }
+    }
 
     return {
       providerAccountId: email,
@@ -112,14 +176,26 @@ export class MigaduMailProvider implements MailProvider {
   }
 
   async disableMailbox(input: { email: string }): Promise<void> {
-    await this.client().put(`/mailboxes/${encodeURIComponent(input.email)}`, { active: false });
+    try {
+      await this.client().put(`/mailboxes/${encodeURIComponent(input.email)}`, { active: false });
+    } catch (error) {
+      throw toMigaduError(error, 'disableMailbox');
+    }
   }
 
   async enableMailbox(input: { email: string }): Promise<void> {
-    await this.client().put(`/mailboxes/${encodeURIComponent(input.email)}`, { active: true });
+    try {
+      await this.client().put(`/mailboxes/${encodeURIComponent(input.email)}`, { active: true });
+    } catch (error) {
+      throw toMigaduError(error, 'enableMailbox');
+    }
   }
 
   async deleteMailbox(input: { email: string }): Promise<void> {
-    await this.client().delete(`/mailboxes/${encodeURIComponent(input.email)}`);
+    try {
+      await this.client().delete(`/mailboxes/${encodeURIComponent(input.email)}`);
+    } catch (error) {
+      throw toMigaduError(error, 'deleteMailbox');
+    }
   }
 }

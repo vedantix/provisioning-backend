@@ -8,6 +8,10 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { env } from '../../../config/env';
 import type { CustomerRecord, DeploymentInfo } from '../types/customer.types';
+import type {
+  MailDomainRecord,
+  MailboxRecord,
+} from '../../mail/types/mail.types';
 
 const client = new DynamoDBClient({});
 const ddb = DynamoDBDocumentClient.from(client);
@@ -232,5 +236,75 @@ export class CustomersRepository {
     };
 
     await this.update(updated);
+  }
+
+  async markDeploymentOffline(params: {
+    customerId: string;
+    updatedAt: string;
+    updatedBy: string;
+    deploymentId?: string;
+    liveDomain?: string;
+  }): Promise<void> {
+    const existing = await this.getById(params.customerId);
+    if (!existing) {
+      return;
+    }
+
+    const deployment = omitUndefinedFields<DeploymentInfo>({
+      ...(existing.deployment || {}),
+      deploymentId: params.deploymentId ?? existing.deployment?.deploymentId,
+      status: 'OFFLINE',
+      currentStage: 'FINALIZE_DELETE',
+      liveDomain: params.liveDomain ?? existing.deployment?.liveDomain,
+    });
+
+    const updated: CustomerRecord = {
+      ...existing,
+      status: 'paused',
+      websiteBuildStatus: 'COMPLETED',
+      updatedAt: params.updatedAt,
+      updatedBy: params.updatedBy,
+      deployment,
+    };
+
+    await this.update(updated);
+  }
+
+  async markMailProvisioned(params: {
+    customerId: string;
+    updatedAt: string;
+    updatedBy: string;
+    mailDomain: MailDomainRecord;
+    mailboxes: MailboxRecord[];
+  }): Promise<CustomerRecord | null> {
+    const existing = await this.getById(params.customerId);
+    if (!existing) {
+      return null;
+    }
+
+    const knownMailboxes = Array.isArray(existing.mailboxes)
+      ? existing.mailboxes
+      : [];
+    const nextMailboxIds = new Set(params.mailboxes.map((mailbox) => mailbox.id));
+
+    const updated: CustomerRecord = {
+      ...existing,
+      updatedAt: params.updatedAt,
+      updatedBy: params.updatedBy,
+      mailDomain: params.mailDomain,
+      mailboxes: [
+        ...params.mailboxes,
+        ...knownMailboxes.filter((mailbox) => !nextMailboxIds.has(mailbox.id)),
+      ],
+      mail: {
+        ...(existing.mail || {}),
+        domainStatus: params.mailDomain.status,
+        mailHostingEnabled: params.mailDomain.mailHostingEnabled,
+        lastProvisionedAt: params.updatedAt,
+      },
+    };
+
+    await this.update(updated);
+    return updated;
   }
 }

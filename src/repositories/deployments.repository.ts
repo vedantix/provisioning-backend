@@ -312,6 +312,29 @@ export class DeploymentsRepository {
     );
   }
 
+  async markDeploymentOffline(
+    deploymentId: string,
+    now: string,
+  ): Promise<void> {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: TABLE_NAME,
+        Key: { id: deploymentId },
+        UpdateExpression:
+          'SET #status = :status, currentStage = :currentStage, updatedAt = :updatedAt ADD version :inc',
+        ExpressionAttributeNames: {
+          '#status': 'status',
+        },
+        ExpressionAttributeValues: {
+          ':status': 'OFFLINE',
+          ':currentStage': 'FINALIZE_DELETE',
+          ':updatedAt': now,
+          ':inc': 1,
+        },
+      }),
+    );
+  }
+
   async updateManagedResources(
     deploymentId: string,
     managedResources: Record<string, unknown>,
