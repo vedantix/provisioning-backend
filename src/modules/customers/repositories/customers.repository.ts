@@ -7,13 +7,19 @@ import {
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { env } from '../../../config/env';
-import type { CustomerRecord } from '../types/customer.types';
+import type { CustomerRecord, DeploymentInfo } from '../types/customer.types';
 
 const client = new DynamoDBClient({});
 const ddb = DynamoDBDocumentClient.from(client);
 const TABLE_NAME = env.customersTable;
 
 type StoredCustomerRecord = CustomerRecord;
+
+function omitUndefinedFields<T extends object>(value: T): T {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, fieldValue]) => fieldValue !== undefined),
+  ) as T;
+}
 
 export class CustomersRepository {
   async create(customer: CustomerRecord): Promise<void> {
@@ -182,5 +188,49 @@ export class CustomersRepository {
         },
       }),
     );
+  }
+
+  async markDeploymentLive(params: {
+    customerId: string;
+    updatedAt: string;
+    updatedBy: string;
+    deploymentId: string;
+    deploymentStage?: string | null;
+    liveDomain: string;
+    distributionId?: string;
+    repositoryName?: string;
+  }): Promise<void> {
+    const existing = await this.getById(params.customerId);
+    if (!existing) {
+      return;
+    }
+
+    const deployment = omitUndefinedFields<DeploymentInfo>({
+      ...(existing.deployment || {}),
+      deploymentId: params.deploymentId,
+      status: 'SUCCEEDED',
+      currentStage: params.deploymentStage ?? 'SQS',
+      liveDomain: params.liveDomain,
+      distributionId:
+        params.distributionId ?? existing.deployment?.distributionId,
+      repositoryName:
+        params.repositoryName ?? existing.deployment?.repositoryName,
+    });
+
+    const updated: CustomerRecord = {
+      ...existing,
+      status: 'active',
+      websiteBuildStatus: 'LIVE',
+      updatedAt: params.updatedAt,
+      updatedBy: params.updatedBy,
+      preview: {
+        ...existing.preview,
+        status: 'ARCHIVED',
+        updatedAt: params.updatedAt,
+      },
+      deployment,
+    };
+
+    await this.update(updated);
   }
 }

@@ -4,6 +4,7 @@ import type { StageDependencies } from './stage-dependencies';
 import { createStageDependencies } from './stage-dependencies.factory';
 import { DeploymentsRepository } from '../../repositories/deployments.repository';
 import { OperationsRepository } from '../../repositories/operations.repository';
+import { CustomersRepository } from '../../modules/customers/repositories/customers.repository';
 import { DeploymentStateService } from './deployment-state.service';
 import { AuditService } from '../audit/audit.service';
 
@@ -32,6 +33,7 @@ export class DeploymentOrchestratorService {
     private readonly stateService = new DeploymentStateService(),
     private readonly auditService = new AuditService(),
     private readonly deps: StageDependencies = createStageDependencies(),
+    private readonly customersRepository = new CustomersRepository(),
   ) {}
 
   async runCreate(deploymentId: string, operationId: string): Promise<void> {
@@ -66,6 +68,7 @@ export class DeploymentOrchestratorService {
     }
 
     await this.stateService.markDeploymentSucceeded(deploymentId);
+    await this.markCustomerLive(deploymentId);
     await this.operationsRepository.markSucceeded(
       operationId,
       new Date().toISOString(),
@@ -177,6 +180,25 @@ export class DeploymentOrchestratorService {
     }
 
     return deployment;
+  }
+
+  private async markCustomerLive(deploymentId: string): Promise<void> {
+    const deployment = await this.deploymentsRepository.getById(deploymentId);
+    if (!deployment) {
+      return;
+    }
+
+    await this.customersRepository.markDeploymentLive({
+      customerId: deployment.customerId,
+      updatedAt: new Date().toISOString(),
+      updatedBy:
+        deployment.triggeredBy ?? deployment.createdBy ?? 'deployment-orchestrator',
+      deploymentId: deployment.deploymentId,
+      deploymentStage: deployment.currentStage ?? 'SQS',
+      liveDomain: deployment.domain,
+      distributionId: deployment.managedResources.cloudFrontDistributionId,
+      repositoryName: deployment.managedResources.repoName,
+    });
   }
 
   private async executeStage(
