@@ -18,6 +18,12 @@ function isDeletedCustomer(customer: CustomerRecord | null): boolean {
   return Boolean(customer?.deletedAt || customer?.status === 'cancelled');
 }
 
+function omitUndefinedFields<T extends Record<string, unknown>>(value: T): T {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, fieldValue]) => fieldValue !== undefined),
+  ) as T;
+}
+
 export class CustomersService {
   constructor(
     private readonly customersRepository = new CustomersRepository(),
@@ -133,12 +139,14 @@ export class CustomersService {
       },
 
       deployment: {
-        ...customer.deployment,
-        deploymentId: params.deploymentId ?? customer.deployment?.deploymentId,
-        status: params.deploymentStatus ?? customer.deployment?.status,
-        currentStage:
-          params.deploymentStage ?? customer.deployment?.currentStage,
-        liveDomain: params.liveDomain ?? customer.deployment?.liveDomain,
+        ...omitUndefinedFields({
+          ...(customer.deployment || {}),
+          deploymentId: params.deploymentId ?? customer.deployment?.deploymentId,
+          status: params.deploymentStatus ?? customer.deployment?.status,
+          currentStage:
+            params.deploymentStage ?? customer.deployment?.currentStage,
+          liveDomain: params.liveDomain ?? customer.deployment?.liveDomain,
+        }),
       },
     };
 

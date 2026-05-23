@@ -113,3 +113,42 @@ describe('CustomersService deletion flow', () => {
     expect(repository.update).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('CustomersService workflow updates', () => {
+  it('does not persist undefined deployment fields when marking preview ready', async () => {
+    const customer = buildCustomer({
+      status: 'building',
+      websiteBuildStatus: 'APP_LINKED',
+      base44: {
+        status: 'LINKED',
+        appId: 'base44-app-id',
+        previewUrl: 'https://nature-heals-denbosch.base44.app',
+      },
+      deployment: {},
+    });
+
+    const repository = {
+      update: vi.fn(),
+    };
+
+    const service = new CustomersService(repository as any);
+    const updated = await service.updateWorkflowState(customer as any, {
+      tenantId: 'default',
+      actorId: 'admin-dashboard',
+      customerId: customer.id as string,
+      status: 'awaiting_approval',
+      websiteBuildStatus: 'PREVIEW_READY',
+      previewUrl: 'https://nature-heals-denbosch.base44.app',
+    });
+
+    expect(updated.deployment).toEqual({});
+    expect(Object.values(updated.deployment || {})).not.toContain(undefined);
+    expect(repository.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'awaiting_approval',
+        websiteBuildStatus: 'PREVIEW_READY',
+        deployment: {},
+      }),
+    );
+  });
+});
