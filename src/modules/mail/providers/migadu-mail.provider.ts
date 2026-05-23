@@ -31,6 +31,10 @@ function requireMigaduConfig(name: string, value: string): string {
 }
 
 function toMigaduError(error: unknown, action: string): AppError {
+  if (error instanceof AppError) {
+    return error;
+  }
+
   if (axios.isAxiosError(error)) {
     const status = error.response?.status;
     const details = {
