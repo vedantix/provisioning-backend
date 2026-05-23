@@ -133,7 +133,7 @@ function ensureContentSynced(customer: any): void {
     customer?.contentSync?.status !== 'SYNCED' ||
     !customer?.contentSync?.repositoryName
   ) {
-    throw new ConflictHttpError('Content is nog niet naar GitHub gesynchroniseerd.');
+    throw new ConflictHttpError('Base44 export is nog niet verwerkt voor publicatie.');
   }
 }
 
@@ -444,24 +444,56 @@ export class CustomersController {
     }
 
     ensureApprovedForProduction(customer);
-    ensureContentSynced(customer);
+
+    let deploymentCustomer = customer;
+    const indexHtml = String(req.body.indexHtml || '').trim();
+
+    if (indexHtml) {
+      await this.contentSyncService.syncCustomerContent(deploymentCustomer, {
+        customerId: deploymentCustomer.id,
+        tenantId: req.ctx.tenantId,
+        actorId: req.ctx.actorId,
+        projectId:
+          String(req.body.projectId || deploymentCustomer.base44?.appId || '').trim() ||
+          undefined,
+        indexHtml,
+        additionalFiles: parseAdditionalFiles(req.body.additionalFiles),
+      });
+
+      deploymentCustomer =
+        (await this.customersService.getCustomerById(
+          req.ctx.tenantId,
+          deploymentCustomer.id,
+        )) || deploymentCustomer;
+    }
+
+    if (
+      deploymentCustomer.contentSync?.status !== 'SYNCED' ||
+      !deploymentCustomer.contentSync?.repositoryName
+    ) {
+      throw new ConflictHttpError(
+        'Base44 export ontbreekt. Plak eerst de index.html export voordat je publiceert.',
+      );
+    }
+
+    ensureContentSynced(deploymentCustomer);
 
     if (req.body.provisionMail !== false) {
       await this.mailProvisioningService.provisionPackageMail({
-        customerId: customer.id,
-        domain: customer.domain,
-        packageCode: toPackageCode(customer.packageCode),
-        selectedMailboxes: customer.selectedMailboxLocalParts,
+        customerId: deploymentCustomer.id,
+        domain: deploymentCustomer.domain,
+        packageCode: toPackageCode(deploymentCustomer.packageCode),
+        selectedMailboxes: deploymentCustomer.selectedMailboxLocalParts,
       });
     }
 
     const input = normalizeCreateDeploymentInput({
-      customerId: customer.id,
+      customerId: deploymentCustomer.id,
       tenantId: req.ctx.tenantId,
-      projectName: req.body.projectName || customer.companyName,
-      domain: customer.domain,
-      packageCode: customer.packageCode,
-      addOns: customer.extras,
+      projectName: req.body.projectName || deploymentCustomer.companyName,
+      domain: deploymentCustomer.domain,
+      packageCode: deploymentCustomer.packageCode,
+      addOns: deploymentCustomer.extras,
       source: req.ctx.source,
       createdBy: req.ctx.actorId,
       triggeredBy: req.ctx.actorId,
@@ -480,16 +512,16 @@ export class CustomersController {
 
       if (existingOperation) {
         const updatedCustomer = await this.customersService.updateWorkflowState(
-          customer,
+          deploymentCustomer,
           {
             tenantId: req.ctx.tenantId,
             actorId: req.ctx.actorId,
-            customerId: customer.id,
+            customerId: deploymentCustomer.id,
             status: 'provisioning',
             websiteBuildStatus: 'APPROVED_FOR_PRODUCTION',
             deploymentId: existingOperation.deploymentId,
             deploymentStatus: existingOperation.status,
-            liveDomain: customer.domain,
+            liveDomain: deploymentCustomer.domain,
           },
         );
 
@@ -500,7 +532,7 @@ export class CustomersController {
             operationId: existingOperation.operationId,
             deploymentId: existingOperation.deploymentId,
             status: existingOperation.status,
-            liveDomain: customer.domain,
+            liveDomain: deploymentCustomer.domain,
             mailProvisioned: req.body.provisionMail !== false,
           },
           requestId: req.ctx.requestId,
@@ -536,17 +568,17 @@ export class CustomersController {
     await this.operationsRepository.create(operation);
 
     const updatedCustomer = await this.customersService.updateWorkflowState(
-      customer,
+      deploymentCustomer,
       {
         tenantId: req.ctx.tenantId,
         actorId: req.ctx.actorId,
-        customerId: customer.id,
+        customerId: deploymentCustomer.id,
         status: 'provisioning',
         websiteBuildStatus: 'APPROVED_FOR_PRODUCTION',
         deploymentId,
         deploymentStatus: deployment.status,
         deploymentStage: deployment.currentStage ?? null,
-        liveDomain: customer.domain,
+        liveDomain: deploymentCustomer.domain,
       },
     );
 
@@ -576,13 +608,13 @@ export class CustomersController {
 
     res.status(202).json({
       data: {
-        customerId: customer.id,
+        customerId: deploymentCustomer.id,
         customer: updatedCustomer,
         deploymentId,
         operationId: operation.operationId,
         status: deployment.status,
         currentStage: deployment.currentStage ?? null,
-        liveDomain: customer.domain,
+        liveDomain: deploymentCustomer.domain,
         mailProvisioned: req.body.provisionMail !== false,
       },
       requestId: req.ctx.requestId,
