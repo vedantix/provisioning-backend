@@ -173,6 +173,7 @@ if (!fs.existsSync(distDir)) {
 }
 
 const sourceFiles = ['index.html'];
+const sourceDirs = ['assets', 'public'];
 
 for (const file of sourceFiles) {
   const from = path.join(rootDir, file);
@@ -183,6 +184,15 @@ for (const file of sourceFiles) {
   }
 
   fs.copyFileSync(from, to);
+}
+
+for (const directory of sourceDirs) {
+  const from = path.join(rootDir, directory);
+  const to = path.join(distDir, directory);
+
+  if (fs.existsSync(from)) {
+    fs.cpSync(from, to, { recursive: true });
+  }
 }
 
 console.log('Build completed. Files copied to dist/.');
