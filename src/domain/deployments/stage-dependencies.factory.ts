@@ -26,6 +26,7 @@ import {
 
 import {
   createCustomerBucket,
+  ensureCloudFrontReadAccess,
 } from '../../services/aws/s3.service';
 
 import {
@@ -268,6 +269,13 @@ class StageDependenciesFactoryImpl implements StageDependencies {
       domainNames: aliases,
       certificateArn: input.certificateArn,
     });
+
+    if (result.arn) {
+      await ensureCloudFrontReadAccess({
+        bucketName: input.bucketName,
+        distributionArn: result.arn,
+      });
+    }
 
     return {
       distributionId: result.distributionId,
