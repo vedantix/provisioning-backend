@@ -553,6 +553,32 @@ export async function deployWebsite(input: DeployRequest) {
     const availability = await checkDomainAvailability(normalizedDomain);
 
     if (!availability.canProceed) {
+      if (availability.status === "DOMAIN_REGISTRATION_DISABLED") {
+        throw new Error(
+          `Domain ${availability.rootDomain} is available for registration, but automatic domain registration is disabled. Set DOMAIN_REGISTRATION_ENABLED=true and configure DOMAIN_CONTACT_* environment variables.`
+        );
+      }
+
+      if (availability.status === "DOMAIN_REGISTRATION_PENDING") {
+        const operationText = availability.domainRegistration?.operationId
+          ? ` OperationId: ${availability.domainRegistration.operationId}.`
+          : "";
+
+        throw new Error(
+          `Domain registration for ${availability.rootDomain} is still in progress.${operationText} Retry DOMAIN_CHECK after AWS finishes the registration operation.`
+        );
+      }
+
+      if (availability.status === "DOMAIN_REGISTRATION_FAILED") {
+        throw new Error(
+          `Domain registration failed for ${availability.rootDomain}: ${
+            availability.domainRegistration?.errorMessage ||
+            availability.domainRegistration?.operationMessage ||
+            "unknown error"
+          }`
+        );
+      }
+
       if (availability.status === "DELEGATION_PENDING") {
         const expectedNameServers = availability.expectedNameServers ?? [];
         const nameserverText = expectedNameServers.length

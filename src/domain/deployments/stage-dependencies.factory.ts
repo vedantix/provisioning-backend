@@ -56,6 +56,31 @@ class StageDependenciesFactoryImpl implements StageDependencies {
     const result = await checkDomainAvailability(input.domain);
 
     if (!result.canProceed) {
+      if (result.status === 'DOMAIN_REGISTRATION_DISABLED') {
+        throw new Error(
+          `Domain ${result.rootDomain} is available for registration, but automatic domain registration is disabled. Set DOMAIN_REGISTRATION_ENABLED=true and configure DOMAIN_CONTACT_* environment variables.`,
+        );
+      }
+
+      if (result.status === 'DOMAIN_REGISTRATION_PENDING') {
+        const registration = result.domainRegistration;
+        const operationText = registration?.operationId
+          ? ` OperationId: ${registration.operationId}.`
+          : '';
+
+        throw new Error(
+          `Domain registration for ${result.rootDomain} is still in progress.${operationText} Retry DOMAIN_CHECK after AWS finishes the registration operation.`,
+        );
+      }
+
+      if (result.status === 'DOMAIN_REGISTRATION_FAILED') {
+        const registration = result.domainRegistration;
+
+        throw new Error(
+          `Domain registration failed for ${result.rootDomain}: ${registration?.errorMessage || registration?.operationMessage || 'unknown error'}`,
+        );
+      }
+
       if (result.status === 'DELEGATION_PENDING') {
         const expectedNameServers = result.expectedNameServers ?? [];
         const nameserverText = expectedNameServers.length
@@ -84,6 +109,7 @@ class StageDependenciesFactoryImpl implements StageDependencies {
       hostedZoneCreated: result.hostedZoneCreated,
       expectedNameServers: result.expectedNameServers,
       actualNameServers: result.actualNameServers,
+      domainRegistration: result.domainRegistration,
     };
   }
 

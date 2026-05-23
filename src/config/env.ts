@@ -53,6 +53,7 @@ export const env = {
 
   awsRegion: required('AWS_REGION'),
   awsAcmRegion: required('AWS_ACM_REGION'),
+  awsRoute53DomainsRegion: optional('AWS_ROUTE53_DOMAINS_REGION', 'us-east-1')!,
   route53HostedZoneId: required('AWS_ROUTE53_HOSTED_ZONE_ID'),
 
   githubOwner: required('GITHUB_OWNER'),
@@ -99,6 +100,24 @@ export const env = {
   stripeCurrency: optional('STRIPE_CURRENCY', 'eur')!,
   appRunnerServiceArn: optional('APP_RUNNER_SERVICE_ARN'),
   appRunnerServiceName: optional('APP_RUNNER_SERVICE_NAME', 'vedantix-provisioning-api')!,
+
+  domainRegistrationEnabled: booleanFromEnv('DOMAIN_REGISTRATION_ENABLED', false),
+  domainRegistrationAutoRenew: booleanFromEnv('DOMAIN_REGISTRATION_AUTO_RENEW', true),
+  domainRegistrationPrivacyProtect: booleanFromEnv('DOMAIN_REGISTRATION_PRIVACY_PROTECT', true),
+  domainRegistrationDurationYears: numberFromEnv('DOMAIN_REGISTRATION_DURATION_YEARS', 1),
+  domainRegistrationWaitSeconds: numberFromEnv('DOMAIN_REGISTRATION_WAIT_SECONDS', 120),
+  domainContactType: optional('DOMAIN_CONTACT_TYPE', 'COMPANY')!,
+  domainContactOrganizationName: optional('DOMAIN_CONTACT_ORGANIZATION_NAME'),
+  domainContactFirstName: optional('DOMAIN_CONTACT_FIRST_NAME'),
+  domainContactLastName: optional('DOMAIN_CONTACT_LAST_NAME'),
+  domainContactEmail: optional('DOMAIN_CONTACT_EMAIL'),
+  domainContactPhone: optional('DOMAIN_CONTACT_PHONE'),
+  domainContactAddressLine1: optional('DOMAIN_CONTACT_ADDRESS_LINE1'),
+  domainContactAddressLine2: optional('DOMAIN_CONTACT_ADDRESS_LINE2'),
+  domainContactCity: optional('DOMAIN_CONTACT_CITY'),
+  domainContactState: optional('DOMAIN_CONTACT_STATE'),
+  domainContactPostalCode: optional('DOMAIN_CONTACT_POSTAL_CODE'),
+  domainContactCountryCode: optional('DOMAIN_CONTACT_COUNTRY_CODE', 'NL')!,
 
   alertsEnabled: booleanFromEnv('ALERTS_ENABLED', false),
   alertTopicArn: optional('ALERT_TOPIC_ARN'),

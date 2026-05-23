@@ -218,11 +218,15 @@ export class DeploymentOrchestratorService {
       hostedZoneCreated: result.hostedZoneCreated,
       expectedNameServers: result.expectedNameServers,
       actualNameServers: result.actualNameServers,
+      domainRegistration: result.domainRegistration,
       managedResources: {
         hostedZoneId: result.hostedZoneId,
         hostedZoneName: result.hostedZoneName,
         route53NameServers: result.expectedNameServers,
         actualNameServers: result.actualNameServers,
+        domainRegistrationOperationId: result.domainRegistration?.operationId,
+        domainRegistrationStatus: result.domainRegistration?.operationStatus,
+        domainRegistrationAvailability: result.domainRegistration?.availability,
       } satisfies Partial<ManagedResources>,
     };
   }

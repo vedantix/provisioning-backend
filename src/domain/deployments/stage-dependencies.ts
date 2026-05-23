@@ -6,6 +6,15 @@ export type DomainCheckResult = {
   hostedZoneCreated?: boolean;
   expectedNameServers?: string[];
   actualNameServers?: string[];
+  domainRegistration?: {
+    enabled?: boolean;
+    availability?: string;
+    submitted?: boolean;
+    operationId?: string;
+    operationStatus?: string;
+    operationMessage?: string;
+    errorMessage?: string;
+  };
 };
 
 export type GitHubProvisionResult = {

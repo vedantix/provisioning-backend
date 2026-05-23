@@ -85,6 +85,9 @@ export type ManagedResources = {
   hostedZoneName?: string;
   route53NameServers?: string[];
   actualNameServers?: string[];
+  domainRegistrationOperationId?: string;
+  domainRegistrationStatus?: string;
+  domainRegistrationAvailability?: string;
   route53AliasRecords?: string[];
   validationRecordFqdns?: string[];
   workflowRunId?: string;
