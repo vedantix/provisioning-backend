@@ -2,6 +2,7 @@ import {
   CloudFrontClient,
   CreateDistributionCommand,
   CreateOriginAccessControlCommand,
+  GetDistributionCommand,
   GetDistributionConfigCommand,
   ListDistributionsCommand,
   ListOriginAccessControlsCommand,
@@ -47,6 +48,20 @@ function buildOacName(bucketRegionalDomainName: string): string {
 
 function buildOriginId(bucketRegionalDomainName: string): string {
   return `s3-${bucketRegionalDomainName}`;
+}
+
+function withRequiredOriginFields(config: DistributionConfig): DistributionConfig {
+  return {
+    ...config,
+    Origins: {
+      ...config.Origins,
+      Items: (config.Origins?.Items ?? []).map((origin) => ({
+        ...origin,
+        CustomHeaders: origin.CustomHeaders ?? { Quantity: 0 },
+      })),
+      Quantity: config.Origins?.Quantity ?? config.Origins?.Items?.length ?? 0,
+    },
+  };
 }
 
 function aliasesExactlyMatch(summary: DistributionSummary, aliases: string[]): boolean {
@@ -196,6 +211,9 @@ function buildDistributionConfig(params: {
           S3OriginConfig: {
             OriginAccessIdentity: ''
           },
+          CustomHeaders: {
+            Quantity: 0
+          },
           OriginAccessControlId: params.oacId
         }
       ]
@@ -270,6 +288,9 @@ function buildUpdatedDistributionConfig(params: {
           DomainName: params.bucketRegionalDomainName,
           S3OriginConfig: {
             OriginAccessIdentity: ''
+          },
+          CustomHeaders: {
+            Quantity: 0
           },
           OriginAccessControlId: params.oacId
         }
@@ -420,7 +441,7 @@ export async function createDistribution(
     new UpdateDistributionCommand({
       Id: existingId,
       IfMatch: eTag,
-      DistributionConfig: updatedConfig
+      DistributionConfig: withRequiredOriginFields(updatedConfig)
     })
   );
 
@@ -469,10 +490,10 @@ export async function disableAndDeleteDistribution(
       new UpdateDistributionCommand({
         Id: distributionId,
         IfMatch: eTag,
-        DistributionConfig: {
+        DistributionConfig: withRequiredOriginFields({
           ...currentConfig,
           Enabled: false
-        }
+        })
       })
     );
 
@@ -574,10 +595,10 @@ export async function disableDistribution(
     new UpdateDistributionCommand({
       Id: distributionId,
       IfMatch: eTag,
-      DistributionConfig: {
+      DistributionConfig: withRequiredOriginFields({
         ...currentConfig,
         Enabled: false
-      }
+      })
     })
   );
 
@@ -618,4 +639,59 @@ export async function waitForDistributionDisabled(
   }
 
   throw new Error(`Timed out while waiting for CloudFront distribution ${distributionId} to disable`);
+}
+
+export async function enableDistribution(
+  distributionId: string
+): Promise<{
+  distributionId: string;
+  domainName?: string;
+  enabled: true;
+  eTag?: string;
+}> {
+  const currentConfigResult = await cloudfront.send(
+    new GetDistributionConfigCommand({
+      Id: distributionId
+    })
+  );
+
+  const currentConfig = currentConfigResult.DistributionConfig;
+  const eTag = currentConfigResult.ETag;
+
+  if (!currentConfig || !eTag) {
+    throw new Error(`Failed to load current CloudFront config for distribution ${distributionId}`);
+  }
+
+  const distributionResult = await cloudfront.send(
+    new GetDistributionCommand({
+      Id: distributionId
+    })
+  );
+
+  if (currentConfig.Enabled) {
+    return {
+      distributionId,
+      domainName: distributionResult.Distribution?.DomainName,
+      enabled: true,
+      eTag,
+    };
+  }
+
+  const enableResult = await cloudfront.send(
+    new UpdateDistributionCommand({
+      Id: distributionId,
+      IfMatch: eTag,
+      DistributionConfig: withRequiredOriginFields({
+        ...currentConfig,
+        Enabled: true
+      })
+    })
+  );
+
+  return {
+    distributionId,
+    domainName: enableResult.Distribution?.DomainName ?? distributionResult.Distribution?.DomainName,
+    enabled: true,
+    eTag: enableResult.ETag,
+  };
 }

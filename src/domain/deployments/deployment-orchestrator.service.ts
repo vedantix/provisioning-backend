@@ -428,11 +428,21 @@ export class DeploymentOrchestratorService {
     deployment: DeploymentRecord,
   ): Promise<Record<string, unknown>> {
     if (deployment.managedResources.cloudFrontDistributionId) {
+      const result = await this.deps.enableCloudFront({
+        distributionId: deployment.managedResources.cloudFrontDistributionId,
+      });
+
+      const cloudFrontDomainName =
+        result.domainName || deployment.managedResources.cloudFrontDomainName;
+
       return {
-        cloudFrontDistributionId:
-          deployment.managedResources.cloudFrontDistributionId,
-        cloudFrontDomainName: deployment.managedResources.cloudFrontDomainName,
-        skipped: true,
+        cloudFrontDistributionId: result.distributionId,
+        cloudFrontDomainName,
+        enabled: true,
+        managedResources: {
+          cloudFrontDistributionId: result.distributionId,
+          cloudFrontDomainName,
+        } satisfies Partial<ManagedResources>,
       };
     }
   
@@ -471,13 +481,6 @@ export class DeploymentOrchestratorService {
   private async handleRoute53Alias(
     deployment: DeploymentRecord,
   ): Promise<Record<string, unknown>> {
-    if (deployment.managedResources.route53AliasRecords?.length) {
-      return {
-        route53AliasRecords: deployment.managedResources.route53AliasRecords,
-        skipped: true,
-      };
-    }
-
     if (!deployment.managedResources.hostedZoneId) {
       throw new Error('Missing hostedZoneId before ROUTE53_ALIAS');
     }

@@ -65,6 +65,30 @@ export class DeploymentsRepository {
     return (result.Items?.[0] as DeploymentRecord | undefined) ?? null;
   }
 
+  async listByTenantAndDomain(
+    tenantId: string,
+    domain: string,
+  ): Promise<DeploymentRecord[]> {
+    const result = await ddb.send(
+      new QueryCommand({
+        TableName: TABLE_NAME,
+        IndexName: 'tenantId-domain-index',
+        KeyConditionExpression: 'tenantId = :tenantId AND #domain = :domain',
+        ExpressionAttributeNames: {
+          '#domain': 'domain',
+        },
+        ExpressionAttributeValues: {
+          ':tenantId': tenantId,
+          ':domain': domain,
+        },
+      }),
+    );
+
+    return ((result.Items as DeploymentRecord[] | undefined) ?? []).sort(
+      (a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')),
+    );
+  }
+
   async listCleanupCandidates(params?: {
     tenantId?: string;
     limit?: number;

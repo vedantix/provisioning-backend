@@ -19,6 +19,13 @@ import { CustomerBuildFlowService } from '../../customer-workflow/services/custo
 import { PreviewService } from '../../preview/services/preview.service';
 import { OfflineDeploymentService } from '../../../domain/deployments/offline-deployment.service';
 import { AnalyticsProvisionService } from '../../../services/analytics/analytics-provision.service';
+import {
+  RedeployService,
+  type RedeployMode,
+} from '../../../domain/deployments/redeploy.service';
+import { AuditService } from '../../../domain/audit/audit.service';
+import type { DeploymentRecord, OperationRecord } from '../../../domain/deployments/types';
+import type { CustomerRecord } from '../types/customer.types';
 
 const previewService = new PreviewService();
 
@@ -171,6 +178,32 @@ function ensureContentSynced(customer: any): void {
   }
 }
 
+function hasRedeployableResources(deployment?: DeploymentRecord | null): boolean {
+  return Boolean(
+    deployment?.managedResources?.repoName &&
+      deployment?.managedResources?.bucketName &&
+      deployment?.managedResources?.cloudFrontDistributionId,
+  );
+}
+
+function isBlockingOperation(operation: OperationRecord): boolean {
+  return operation.status === 'ACCEPTED' || operation.status === 'RUNNING';
+}
+
+function buildCustomerRedeployRequestHash(input: {
+  tenantId: string;
+  customerId: string;
+  deploymentId: string;
+  mode: RedeployMode;
+  path: string;
+  method: string;
+}): string {
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify(input))
+    .digest('hex');
+}
+
 export class CustomersController {
   constructor(
     private readonly customersService = new CustomersService(),
@@ -185,7 +218,176 @@ export class CustomersController {
     private readonly customerBuildFlowService = new CustomerBuildFlowService(),
     private readonly offlineDeploymentService = new OfflineDeploymentService(),
     private readonly analyticsProvisionService = new AnalyticsProvisionService(),
+    private readonly redeployService = new RedeployService(),
+    private readonly auditService = new AuditService(),
   ) {}
+
+  private async resolveRedeployTarget(
+    tenantId: string,
+    customer: CustomerRecord,
+  ): Promise<{ deployment: DeploymentRecord; mode: RedeployMode } | null> {
+    const currentDeploymentId = customer.deployment?.deploymentId;
+    const currentDeployment = currentDeploymentId
+      ? await this.deploymentsRepository.getById(currentDeploymentId)
+      : null;
+
+    if (
+      currentDeployment &&
+      (currentDeployment.status === 'PENDING' ||
+        currentDeployment.status === 'IN_PROGRESS' ||
+        currentDeployment.status === 'DELETING')
+    ) {
+      throw new ConflictHttpError(
+        'Er loopt al een deployment voor deze klant. Wacht tot deze klaar is of retry de gefaalde stage.',
+      );
+    }
+
+    const deployments = await this.deploymentsRepository.listByTenantAndDomain(
+      tenantId,
+      customer.domain,
+    );
+
+    const candidates = [
+      currentDeployment,
+      ...deployments.filter(
+        (deployment) => deployment.deploymentId !== currentDeployment?.deploymentId,
+      ),
+    ].filter(
+      (deployment): deployment is DeploymentRecord => {
+        if (!deployment) {
+          return false;
+        }
+
+        return (
+          deployment.tenantId === tenantId &&
+          deployment.customerId === customer.id &&
+          deployment.status !== 'DELETED' &&
+          deployment.status !== 'DELETING' &&
+          deployment.status !== 'PENDING' &&
+          deployment.status !== 'IN_PROGRESS' &&
+          hasRedeployableResources(deployment)
+        );
+      },
+    );
+
+    const target =
+      candidates.find((deployment) => deployment.status === 'SUCCEEDED') ??
+      candidates.find((deployment) => deployment.status === 'OFFLINE') ??
+      candidates.find((deployment) => deployment.status === 'FAILED') ??
+      null;
+
+    if (target) {
+      return {
+        deployment: target,
+        mode: target.status === 'SUCCEEDED' ? 'CONTENT_ONLY' : 'REPAIR_INFRA',
+      };
+    }
+
+    const failedDeployment =
+      currentDeployment?.status === 'FAILED'
+        ? currentDeployment
+        : deployments.find((deployment) => deployment.status === 'FAILED');
+
+    if (failedDeployment) {
+      throw new ConflictHttpError(
+        `Er bestaat al een gefaalde deployment voor deze klant bij stage ${failedDeployment.currentStage || failedDeployment.failureStage || 'onbekend'}. Retry eerst die stage in plaats van een nieuwe deployment te maken.`,
+      );
+    }
+
+    return null;
+  }
+
+  private async startCustomerRedeploy(params: {
+    req: Request;
+    customer: CustomerRecord;
+    deployment: DeploymentRecord;
+    mode: RedeployMode;
+  }): Promise<Record<string, unknown>> {
+    const existingOperations = await this.operationsRepository.listByDeploymentId(
+      params.deployment.deploymentId,
+    );
+    const blockingOperation = existingOperations.find(isBlockingOperation);
+
+    if (blockingOperation) {
+      throw new ConflictHttpError(
+        `Er loopt al een deployment operatie (${blockingOperation.operationId}).`,
+      );
+    }
+
+    const operationId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const requestHash = buildCustomerRedeployRequestHash({
+      tenantId: params.req.ctx.tenantId,
+      customerId: params.customer.id,
+      deploymentId: params.deployment.deploymentId,
+      mode: params.mode,
+      path: params.req.originalUrl,
+      method: params.req.method,
+    });
+
+    await this.operationsRepository.create({
+      operationId,
+      deploymentId: params.deployment.deploymentId,
+      tenantId: params.deployment.tenantId,
+      customerId: params.deployment.customerId,
+      type: 'REDEPLOY',
+      status: 'ACCEPTED',
+      idempotencyKey: params.req.ctx.idempotencyKey,
+      requestHash,
+      source: params.req.ctx.source,
+      actorId: params.req.ctx.actorId,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await this.auditService.write({
+      deploymentId: params.deployment.deploymentId,
+      operationId,
+      tenantId: params.deployment.tenantId,
+      customerId: params.deployment.customerId,
+      actorId: params.req.ctx.actorId,
+      eventType: 'DEPLOYMENT_REDEPLOY_REQUESTED',
+      metadata: {
+        mode: params.mode,
+        source: 'CUSTOMER_WORKFLOW',
+      },
+    });
+
+    const updatedCustomer = await this.customersService.updateWorkflowState(
+      params.customer,
+      {
+        tenantId: params.req.ctx.tenantId,
+        actorId: params.req.ctx.actorId,
+        customerId: params.customer.id,
+        status: 'provisioning',
+        websiteBuildStatus: 'APPROVED_FOR_PRODUCTION',
+        deploymentId: params.deployment.deploymentId,
+        deploymentStatus: 'IN_PROGRESS',
+        deploymentStage: 'REDEPLOY_REQUESTED',
+        liveDomain: params.deployment.domain,
+      },
+    );
+
+    void this.redeployService
+      .startRedeploy(params.deployment.deploymentId, operationId, params.mode)
+      .catch((error: unknown) => {
+        console.error(
+          `[CUSTOMER_REDEPLOY][${params.deployment.deploymentId}][${operationId}]`,
+          error,
+        );
+      });
+
+    return {
+      redeploy: true,
+      customerId: params.customer.id,
+      customer: updatedCustomer,
+      deploymentId: params.deployment.deploymentId,
+      operationId,
+      status: 'REDEPLOY_STARTED',
+      mode: params.mode,
+      liveDomain: params.deployment.domain,
+    };
+  }
 
   createCustomer = async (req: Request, res: Response): Promise<void> => {
     const customer = await this.customersService.createCustomer({
@@ -564,6 +766,29 @@ export class CustomersController {
       });
     }
 
+    const redeployTarget = await this.resolveRedeployTarget(
+      req.ctx.tenantId,
+      deploymentCustomer,
+    );
+
+    if (redeployTarget) {
+      const redeploy = await this.startCustomerRedeploy({
+        req,
+        customer: deploymentCustomer,
+        deployment: redeployTarget.deployment,
+        mode: redeployTarget.mode,
+      });
+
+      res.status(202).json({
+        data: {
+          ...redeploy,
+          mailProvisioned: shouldProvisionMail,
+        },
+        requestId: req.ctx.requestId,
+      });
+      return;
+    }
+
     const input = normalizeCreateDeploymentInput({
       customerId: deploymentCustomer.id,
       tenantId: req.ctx.tenantId,
@@ -660,10 +885,7 @@ export class CustomersController {
       },
     );
 
-    const { AuditService } = await import('../../../domain/audit/audit.service');
-    const auditService = new AuditService();
-
-    await auditService.write({
+    await this.auditService.write({
       deploymentId,
       operationId: operation.operationId,
       tenantId: deployment.tenantId,

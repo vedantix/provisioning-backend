@@ -13,6 +13,7 @@ import {
 
 import {
   createDistribution,
+  enableDistribution,
 } from '../../services/aws/cloudfront.service';
 
 import {
@@ -301,6 +302,15 @@ dist
 
     return {
       aliasRecords: result.upsertedDomains,
+    };
+  }
+
+  async enableCloudFront(input: { distributionId: string }) {
+    const result = await enableDistribution(input.distributionId);
+
+    return {
+      distributionId: result.distributionId,
+      domainName: result.domainName ?? '',
     };
   }
 

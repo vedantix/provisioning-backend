@@ -1,5 +1,6 @@
 import { DeploymentOrchestratorService } from './deployment-orchestrator.service';
 import { DeploymentsRepository } from '../../repositories/deployments.repository';
+import { CustomersRepository } from '../../modules/customers/repositories/customers.repository';
 import { DeploymentStateService } from './deployment-state.service';
 import type { AnyStage, DeploymentRecord } from './types';
 import { DeploymentConsistencyService } from '../consistency/deployment-consistency.service';
@@ -28,6 +29,7 @@ export class RedeployService {
     private readonly stateService = new DeploymentStateService(),
     private readonly orchestrator = new DeploymentOrchestratorService(),
     private readonly consistencyService = new DeploymentConsistencyService(),
+    private readonly customersRepository = new CustomersRepository(),
   ) {}
 
   async startRedeploy(
@@ -82,6 +84,7 @@ export class RedeployService {
     );
 
     await this.stateService.markDeploymentSucceeded(deployment.deploymentId);
+    await this.markCustomerLive(deployment.deploymentId);
 
     await this.updateConsistencySnapshot(deployment.deploymentId);
   }
@@ -99,6 +102,7 @@ export class RedeployService {
     }
 
     await this.stateService.markDeploymentSucceeded(deployment.deploymentId);
+    await this.markCustomerLive(deployment.deploymentId);
 
     await this.consistencyService.assertDeploymentState(
       deployment.deploymentId,
@@ -117,7 +121,25 @@ export class RedeployService {
       deployment.deploymentId,
     );
 
+    await this.markCustomerLive(deployment.deploymentId);
+
     await this.updateConsistencySnapshot(deployment.deploymentId);
+  }
+
+  private async markCustomerLive(deploymentId: string): Promise<void> {
+    const deployment = await this.requireDeployment(deploymentId);
+
+    await this.customersRepository.markDeploymentLive({
+      customerId: deployment.customerId,
+      updatedAt: new Date().toISOString(),
+      updatedBy: deployment.triggeredBy ?? deployment.createdBy ?? 'redeploy',
+      deploymentId: deployment.deploymentId,
+      deploymentStage:
+        deployment.lastSuccessfulStage ?? deployment.currentStage ?? 'SQS',
+      liveDomain: deployment.domain,
+      distributionId: deployment.managedResources.cloudFrontDistributionId,
+      repositoryName: deployment.managedResources.repoName,
+    });
   }
 
   private async updateConsistencySnapshot(

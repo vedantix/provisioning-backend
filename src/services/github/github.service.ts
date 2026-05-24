@@ -106,6 +106,34 @@ function toSerializableError(error: unknown): unknown {
   return error;
 }
 
+function buildDeploymentWorkflowInputs(params: {
+  bucket: string;
+  distributionId: string;
+  analyticsEnv?: Record<string, string>;
+}): Record<string, string> {
+  const inputs: Record<string, string> = {
+    bucket: params.bucket,
+    distribution_id: params.distributionId,
+    mode: 'deploy',
+    target_ref: '',
+  };
+
+  const gaMeasurementId =
+    params.analyticsEnv?.VITE_GA_MEASUREMENT_ID?.trim() ?? '';
+  const clarityProjectId =
+    params.analyticsEnv?.VITE_CLARITY_PROJECT_ID?.trim() ?? '';
+
+  if (gaMeasurementId) {
+    inputs.ga_measurement_id = gaMeasurementId;
+  }
+
+  if (clarityProjectId) {
+    inputs.clarity_project_id = clarityProjectId;
+  }
+
+  return inputs;
+}
+
 async function getOwnerType(): Promise<'org' | 'user'> {
   const result = await octokit.users.getByUsername({
     username: env.githubOwner,
@@ -585,14 +613,11 @@ export async function dispatchDeploymentWorkflow(
       repo,
       workflowIdentifier: workflow.id,
       ref: dispatchRef,
-      inputs: {
+      inputs: buildDeploymentWorkflowInputs({
         bucket,
-        distribution_id: distributionId,
-        mode: 'deploy',
-        target_ref: '',
-        ga_measurement_id: params.analyticsEnv?.VITE_GA_MEASUREMENT_ID ?? '',
-        clarity_project_id: params.analyticsEnv?.VITE_CLARITY_PROJECT_ID ?? '',
-      },
+        distributionId,
+        analyticsEnv: params.analyticsEnv,
+      }),
     });
 
     return {

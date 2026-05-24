@@ -126,6 +126,10 @@ export interface StageDependencies {
     certificateArn: string;
   }): Promise<CloudFrontResult>;
 
+  enableCloudFront(input: {
+    distributionId: string;
+  }): Promise<CloudFrontResult>;
+
   route53Alias(input: {
     domain: string;
     rootDomain: string;
