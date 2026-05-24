@@ -390,6 +390,15 @@ export class DeploymentOrchestratorService {
       deployment.stageStates['ACM_VALIDATION_RECORDS']?.output?.validationRecords;
 
     if (!Array.isArray(stageOutput) || stageOutput.length === 0) {
+      if (deployment.managedResources.validationRecordFqdns?.length) {
+        return {
+          propagationChecked: true,
+          skipped: true,
+          validationRecordFqdns:
+            deployment.managedResources.validationRecordFqdns,
+        };
+      }
+
       throw new Error('Missing validation records before ACM_DNS_PROPAGATION');
     }
 
