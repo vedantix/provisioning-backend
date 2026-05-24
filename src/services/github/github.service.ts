@@ -37,6 +37,7 @@ type DispatchDeploymentParams = {
   bucket: string;
   distributionId: string;
   ref?: string;
+  analyticsEnv?: Record<string, string>;
 };
 
 type DispatchRollbackParams = {
@@ -589,6 +590,8 @@ export async function dispatchDeploymentWorkflow(
         distribution_id: distributionId,
         mode: 'deploy',
         target_ref: '',
+        ga_measurement_id: params.analyticsEnv?.VITE_GA_MEASUREMENT_ID ?? '',
+        clarity_project_id: params.analyticsEnv?.VITE_CLARITY_PROJECT_ID ?? '',
       },
     });
 
@@ -602,6 +605,7 @@ export async function dispatchDeploymentWorkflow(
         dispatchRef,
         bucket,
         distributionId,
+        analyticsEnv: params.analyticsEnv,
       },
     };
   } catch (error) {

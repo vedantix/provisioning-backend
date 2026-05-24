@@ -58,6 +58,24 @@ export type Route53AliasResult = {
   aliasRecords: string[];
 };
 
+export type GoogleAnalyticsStageResult = {
+  propertyId: string;
+  dataStreamId?: string;
+  measurementId: string;
+};
+
+export type SearchConsoleStageResult = {
+  propertyId: string;
+  verified: boolean;
+  verificationRecordName?: string;
+};
+
+export type ClarityStageResult = {
+  projectId?: string;
+  skipped?: boolean;
+  trackingEnvironment: Record<string, string>;
+};
+
 export type GitHubDispatchResult = {
   workflowRunId: string;
 };
@@ -115,11 +133,37 @@ export interface StageDependencies {
     cloudFrontDomainName: string;
   }): Promise<Route53AliasResult>;
 
+  googleAnalytics(input: {
+    tenantId: string;
+    customerId: string;
+    deploymentId: string;
+    domain: string;
+    displayName?: string;
+  }): Promise<GoogleAnalyticsStageResult>;
+
+  searchConsole(input: {
+    tenantId: string;
+    customerId: string;
+    deploymentId: string;
+    domain: string;
+    displayName?: string;
+    hostedZoneId: string;
+  }): Promise<SearchConsoleStageResult>;
+
+  clarity(input: {
+    tenantId: string;
+    customerId: string;
+    deploymentId: string;
+    domain: string;
+    displayName?: string;
+  }): Promise<ClarityStageResult>;
+
   githubDispatch(input: {
     repoName: string;
     domain: string;
     bucketName: string;
     cloudFrontDistributionId: string;
+    trackingEnvironment?: Record<string, string>;
   }): Promise<GitHubDispatchResult>;
 
   dynamoDbSync(input: {

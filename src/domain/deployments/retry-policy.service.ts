@@ -70,12 +70,45 @@ export class RetryPolicyService {
         return ['ACM_WAIT'];
 
       case 'ACM_WAIT':
-        return ['CLOUDFRONT', 'ROUTE53_ALIAS', 'GITHUB_DISPATCH', 'DYNAMODB', 'SQS'];
+        return [
+          'CLOUDFRONT',
+          'ROUTE53_ALIAS',
+          'GOOGLE_ANALYTICS',
+          'SEARCH_CONSOLE',
+          'CLARITY',
+          'GITHUB_DISPATCH',
+          'DYNAMODB',
+          'SQS',
+        ];
 
       case 'CLOUDFRONT':
-        return ['ROUTE53_ALIAS', 'GITHUB_DISPATCH', 'DYNAMODB', 'SQS'];
+        return [
+          'ROUTE53_ALIAS',
+          'GOOGLE_ANALYTICS',
+          'SEARCH_CONSOLE',
+          'CLARITY',
+          'GITHUB_DISPATCH',
+          'DYNAMODB',
+          'SQS',
+        ];
 
       case 'ROUTE53_ALIAS':
+        return [
+          'GOOGLE_ANALYTICS',
+          'SEARCH_CONSOLE',
+          'CLARITY',
+          'GITHUB_DISPATCH',
+          'DYNAMODB',
+          'SQS',
+        ];
+
+      case 'GOOGLE_ANALYTICS':
+        return ['SEARCH_CONSOLE', 'CLARITY', 'GITHUB_DISPATCH', 'DYNAMODB', 'SQS'];
+
+      case 'SEARCH_CONSOLE':
+        return ['CLARITY', 'GITHUB_DISPATCH', 'DYNAMODB', 'SQS'];
+
+      case 'CLARITY':
         return ['GITHUB_DISPATCH', 'DYNAMODB', 'SQS'];
 
       case 'GITHUB_DISPATCH':

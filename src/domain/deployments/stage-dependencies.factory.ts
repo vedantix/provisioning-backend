@@ -46,6 +46,8 @@ import {
   dispatchDeploymentWorkflow,
 } from '../../services/github/github.service';
 
+import { AnalyticsProvisionService } from '../../services/analytics/analytics-provision.service';
+
 import {
   checkDomainAvailability,
 } from '../../services/domain/domain-check.service';
@@ -58,6 +60,10 @@ import {
 } from '../../services/provisioning/provisioning.helpers';
 
 class StageDependenciesFactoryImpl implements StageDependencies {
+  constructor(
+    private readonly analyticsProvisionService = new AnalyticsProvisionService(),
+  ) {}
+
   async domainCheck(input: { domain: string }) {
     const result = await checkDomainAvailability(input.domain);
 
@@ -303,11 +309,13 @@ dist
     domain: string;
     bucketName: string;
     cloudFrontDistributionId: string;
+    trackingEnvironment?: Record<string, string>;
   }) {
     const result = await dispatchDeploymentWorkflow({
       repo: input.repoName,
       bucket: input.bucketName,
       distributionId: input.cloudFrontDistributionId,
+      analyticsEnv: input.trackingEnvironment,
     });
 
     if (!result.success) {
@@ -318,6 +326,74 @@ dist
 
     return {
       workflowRunId: `dispatch-${Date.now()}`,
+    };
+  }
+
+  async googleAnalytics(input: {
+    tenantId: string;
+    customerId: string;
+    deploymentId: string;
+    domain: string;
+    displayName?: string;
+  }) {
+    const result = await this.analyticsProvisionService.provisionGoogleAnalytics({
+      tenantId: input.tenantId,
+      customerId: input.customerId,
+      deploymentId: input.deploymentId,
+      domain: input.domain,
+      displayName: input.displayName,
+    });
+
+    return {
+      propertyId: result.googleAnalytics.propertyId || '',
+      dataStreamId: result.googleAnalytics.dataStreamId,
+      measurementId: result.googleAnalytics.measurementId || '',
+    };
+  }
+
+  async searchConsole(input: {
+    tenantId: string;
+    customerId: string;
+    deploymentId: string;
+    domain: string;
+    displayName?: string;
+    hostedZoneId: string;
+  }) {
+    const result = await this.analyticsProvisionService.provisionSearchConsole({
+      tenantId: input.tenantId,
+      customerId: input.customerId,
+      deploymentId: input.deploymentId,
+      domain: input.domain,
+      displayName: input.displayName,
+      hostedZoneId: input.hostedZoneId,
+    });
+
+    return {
+      propertyId: result.searchConsole.propertyId || '',
+      verified: result.searchConsole.verified,
+      verificationRecordName: result.searchConsole.verificationRecordName,
+    };
+  }
+
+  async clarity(input: {
+    tenantId: string;
+    customerId: string;
+    deploymentId: string;
+    domain: string;
+    displayName?: string;
+  }) {
+    const result = await this.analyticsProvisionService.provisionClarity({
+      tenantId: input.tenantId,
+      customerId: input.customerId,
+      deploymentId: input.deploymentId,
+      domain: input.domain,
+      displayName: input.displayName,
+    });
+
+    return {
+      projectId: result.clarity.projectId,
+      skipped: result.clarity.status === 'SKIPPED',
+      trackingEnvironment: result.trackingEnvironment,
     };
   }
 

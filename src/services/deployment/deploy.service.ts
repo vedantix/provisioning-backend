@@ -67,6 +67,9 @@ export type DeployStage =
   | "ACM_WAIT"
   | "CLOUDFRONT"
   | "ROUTE53_ALIAS"
+  | "GOOGLE_ANALYTICS"
+  | "SEARCH_CONSOLE"
+  | "CLARITY"
   | "GITHUB_DISPATCH"
   | "DYNAMODB"
   | "SQS";

@@ -18,6 +18,7 @@ import { ContentSyncService } from '../../content-sync/services/content-sync.ser
 import { CustomerBuildFlowService } from '../../customer-workflow/services/customer-build-flow.service';
 import { PreviewService } from '../../preview/services/preview.service';
 import { OfflineDeploymentService } from '../../../domain/deployments/offline-deployment.service';
+import { AnalyticsProvisionService } from '../../../services/analytics/analytics-provision.service';
 
 const previewService = new PreviewService();
 
@@ -183,6 +184,7 @@ export class CustomersController {
     private readonly contentSyncService = new ContentSyncService(),
     private readonly customerBuildFlowService = new CustomerBuildFlowService(),
     private readonly offlineDeploymentService = new OfflineDeploymentService(),
+    private readonly analyticsProvisionService = new AnalyticsProvisionService(),
   ) {}
 
   createCustomer = async (req: Request, res: Response): Promise<void> => {
@@ -246,6 +248,20 @@ export class CustomersController {
       })
       .catch((error) => {
         console.error('[CUSTOMER_FINANCE_DELETE_FAILED]', {
+          customerId,
+          tenantId: req.ctx.tenantId,
+          message: error instanceof Error ? error.message : 'Unknown error',
+        });
+      });
+
+    await this.analyticsProvisionService
+      .deleteAnalytics({
+        tenantId: req.ctx.tenantId,
+        customerId,
+        actorId: req.ctx.actorId,
+      })
+      .catch((error) => {
+        console.error('[CUSTOMER_ANALYTICS_DELETE_FAILED]', {
           customerId,
           tenantId: req.ctx.tenantId,
           message: error instanceof Error ? error.message : 'Unknown error',

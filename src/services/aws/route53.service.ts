@@ -434,6 +434,50 @@ export async function upsertMailDnsRecords(
   };
 }
 
+export async function upsertTxtRecord(params: {
+  hostedZoneId: string;
+  name: string;
+  value: string;
+  ttl?: number;
+}): Promise<{
+  name: string;
+  type: "TXT";
+  hostedZoneId: string;
+  upserted: true;
+}> {
+  if (!params.hostedZoneId) {
+    throw new Error("hostedZoneId is required for TXT record upsert");
+  }
+
+  const escapedValue = params.value.trim().replace(/"/g, '\\"');
+  const record: ResourceRecordSet = {
+    Name: toRoute53RecordName(params.name),
+    Type: "TXT",
+    TTL: params.ttl ?? 300,
+    ResourceRecords: [
+      {
+        Value: `"${escapedValue}"`,
+      },
+    ],
+  };
+
+  await upsertRecord({
+    hostedZoneId: params.hostedZoneId,
+    record,
+  });
+
+  console.log(
+    `[ROUTE53] Upserted TXT record ${normalizeDnsName(params.name)} in hosted zone ${params.hostedZoneId}`
+  );
+
+  return {
+    name: normalizeDnsName(params.name),
+    type: "TXT",
+    hostedZoneId: params.hostedZoneId,
+    upserted: true,
+  };
+}
+
 async function removeSingleDnsRecordIfExists(params: {
   hostedZoneId: string;
   name: string;

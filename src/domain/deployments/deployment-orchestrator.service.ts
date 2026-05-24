@@ -224,6 +224,12 @@ export class DeploymentOrchestratorService {
         return this.handleCloudFront(deployment);
       case 'ROUTE53_ALIAS':
         return this.handleRoute53Alias(deployment);
+      case 'GOOGLE_ANALYTICS':
+        return this.handleGoogleAnalytics(deployment);
+      case 'SEARCH_CONSOLE':
+        return this.handleSearchConsole(deployment);
+      case 'CLARITY':
+        return this.handleClarity(deployment);
       case 'GITHUB_DISPATCH':
         return this.handleGitHubDispatch(deployment);
       case 'DYNAMODB':
@@ -516,12 +522,124 @@ export class DeploymentOrchestratorService {
       bucketName: deployment.managedResources.bucketName,
       cloudFrontDistributionId:
         deployment.managedResources.cloudFrontDistributionId,
+      trackingEnvironment: deployment.managedResources.trackingEnvironment,
     });
 
     return {
       workflowRunId: result.workflowRunId,
       managedResources: {
         workflowRunId: result.workflowRunId,
+      } satisfies Partial<ManagedResources>,
+    };
+  }
+
+  private async handleGoogleAnalytics(
+    deployment: DeploymentRecord,
+  ): Promise<Record<string, unknown>> {
+    if (deployment.managedResources.googleAnalyticsMeasurementId) {
+      return {
+        propertyId: deployment.managedResources.googleAnalyticsPropertyId,
+        measurementId: deployment.managedResources.googleAnalyticsMeasurementId,
+        skipped: true,
+      };
+    }
+
+    const result = await this.deps.googleAnalytics({
+      tenantId: deployment.tenantId,
+      customerId: deployment.customerId,
+      deploymentId: deployment.deploymentId,
+      domain: deployment.domain,
+      displayName: deployment.domain,
+    });
+
+    return {
+      propertyId: result.propertyId,
+      dataStreamId: result.dataStreamId,
+      measurementId: result.measurementId,
+      managedResources: {
+        analyticsIntegrationId: deployment.customerId,
+        googleAnalyticsPropertyId: result.propertyId,
+        googleAnalyticsDataStreamId: result.dataStreamId,
+        googleAnalyticsMeasurementId: result.measurementId,
+        trackingEnvironment: {
+          ...(deployment.managedResources.trackingEnvironment ?? {}),
+          VITE_GA_MEASUREMENT_ID: result.measurementId,
+          NEXT_PUBLIC_GA_MEASUREMENT_ID: result.measurementId,
+        },
+      } satisfies Partial<ManagedResources>,
+    };
+  }
+
+  private async handleSearchConsole(
+    deployment: DeploymentRecord,
+  ): Promise<Record<string, unknown>> {
+    if (deployment.managedResources.searchConsoleVerified) {
+      return {
+        propertyId: deployment.managedResources.searchConsolePropertyId,
+        verified: true,
+        skipped: true,
+      };
+    }
+
+    if (!deployment.managedResources.hostedZoneId) {
+      throw new Error('Missing hostedZoneId before SEARCH_CONSOLE');
+    }
+
+    const result = await this.deps.searchConsole({
+      tenantId: deployment.tenantId,
+      customerId: deployment.customerId,
+      deploymentId: deployment.deploymentId,
+      domain: deployment.domain,
+      displayName: deployment.domain,
+      hostedZoneId: deployment.managedResources.hostedZoneId,
+    });
+
+    return {
+      propertyId: result.propertyId,
+      verified: result.verified,
+      verificationRecordName: result.verificationRecordName,
+      managedResources: {
+        analyticsIntegrationId: deployment.customerId,
+        searchConsolePropertyId: result.propertyId,
+        searchConsoleVerified: result.verified,
+        searchConsoleVerificationRecord: result.verificationRecordName,
+      } satisfies Partial<ManagedResources>,
+    };
+  }
+
+  private async handleClarity(
+    deployment: DeploymentRecord,
+  ): Promise<Record<string, unknown>> {
+    if (
+      deployment.managedResources.clarityProjectId ||
+      deployment.stageStates.CLARITY?.status === 'SUCCEEDED'
+    ) {
+      return {
+        projectId: deployment.managedResources.clarityProjectId,
+        skipped: !deployment.managedResources.clarityProjectId,
+        skippedPreviously: true,
+      };
+    }
+
+    const result = await this.deps.clarity({
+      tenantId: deployment.tenantId,
+      customerId: deployment.customerId,
+      deploymentId: deployment.deploymentId,
+      domain: deployment.domain,
+      displayName: deployment.domain,
+    });
+
+    return {
+      projectId: result.projectId,
+      skipped: result.skipped,
+      trackingEnvironment: result.trackingEnvironment,
+      managedResources: {
+        analyticsIntegrationId: deployment.customerId,
+        clarityProjectId: result.projectId,
+        trackingEnvironment: {
+          ...(deployment.managedResources.trackingEnvironment ?? {}),
+          ...result.trackingEnvironment,
+        },
       } satisfies Partial<ManagedResources>,
     };
   }

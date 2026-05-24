@@ -86,6 +86,23 @@ export class StagePreconditionsService {
         );
         return;
 
+      case 'GOOGLE_ANALYTICS':
+        this.assertHasDomain(deployment);
+        return;
+
+      case 'SEARCH_CONSOLE':
+        this.assertHasDomain(deployment);
+        this.assertManagedResource(
+          deployment,
+          'hostedZoneId',
+          'Missing hostedZoneId before SEARCH_CONSOLE',
+        );
+        return;
+
+      case 'CLARITY':
+        this.assertHasDomain(deployment);
+        return;
+
       case 'GITHUB_DISPATCH':
         this.assertManagedResource(
           deployment,

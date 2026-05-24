@@ -7,6 +7,7 @@ import packageRoutes from "./routes/package.routes";
 import mailboxRoutes from "./routes/mailbox.routes";
 import billingRoutes from "./routes/billing.routes";
 import catalogRoutes from "./routes/catalog.routes";
+import analyticsRoutes from "./routes/analytics.routes";
 import deleteRoutes from "./routes/delete.routes";
 import redeployRoutes from "./routes/redeploy.routes";
 import rollbackRoutes from "./routes/rollback.routes";
@@ -111,6 +112,8 @@ app.use("/", previewRoutes);
 app.use("/api", adminAuthRoutes);
 app.use("/api/billing", billingRoutes);
 app.use("/api/catalog", catalogRoutes);
+app.use("/api/analytics", analyticsRoutes);
+app.use("/analytics", analyticsRoutes);
 
 app.use("/api", customersRoutes);
 app.use("/api/finance", financeRoutes);

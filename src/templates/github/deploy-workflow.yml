@@ -21,6 +21,16 @@ on:
         required: false
         default: ""
         type: string
+      ga_measurement_id:
+        description: "Google Analytics Measurement ID"
+        required: false
+        default: ""
+        type: string
+      clarity_project_id:
+        description: "Microsoft Clarity Project ID"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -62,6 +72,11 @@ jobs:
           fi
 
       - name: Build project
+        env:
+          VITE_GA_MEASUREMENT_ID: ${{ inputs.ga_measurement_id }}
+          NEXT_PUBLIC_GA_MEASUREMENT_ID: ${{ inputs.ga_measurement_id }}
+          VITE_CLARITY_PROJECT_ID: ${{ inputs.clarity_project_id }}
+          NEXT_PUBLIC_CLARITY_PROJECT_ID: ${{ inputs.clarity_project_id }}
         run: |
           rm -rf dist
           if [ -f package.json ] && node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts.build ? 0 : 1)"; then
@@ -70,6 +85,45 @@ jobs:
             mkdir -p dist
             cp index.html dist/index.html
           fi
+
+      - name: Inject analytics tags
+        env:
+          GA_MEASUREMENT_ID: ${{ inputs.ga_measurement_id }}
+          CLARITY_PROJECT_ID: ${{ inputs.clarity_project_id }}
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const file = 'dist/index.html';
+          if (!fs.existsSync(file)) {
+            process.exit(0);
+          }
+
+          const ga = (process.env.GA_MEASUREMENT_ID || '').trim();
+          const clarity = (process.env.CLARITY_PROJECT_ID || '').trim();
+          if (!ga && !clarity) {
+            process.exit(0);
+          }
+
+          let html = fs.readFileSync(file, 'utf8');
+          const tags = [];
+
+          if (ga && !html.includes(`googletagmanager.com/gtag/js?id=${ga}`)) {
+            tags.push(`<script async src="https://www.googletagmanager.com/gtag/js?id=${ga}"></script>`);
+            tags.push(`<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${ga}');</script>`);
+          }
+
+          if (clarity && !html.includes(`clarity.ms/tag/${clarity}`)) {
+            tags.push(`<script>(function(c,l,a,r,i,t,y){c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);})(window,document,"clarity","script","${clarity}");</script>`);
+          }
+
+          if (tags.length) {
+            const block = `\n<!-- Vedantix analytics -->\n${tags.join('\n')}\n`;
+            html = html.includes('</head>')
+              ? html.replace('</head>', `${block}</head>`)
+              : `${block}${html}`;
+            fs.writeFileSync(file, html);
+          }
+          NODE
 
       - name: Ensure dist exists
         run: |

@@ -43,6 +43,9 @@ export type DeploymentStage =
   | 'ACM_WAIT'
   | 'CLOUDFRONT'
   | 'ROUTE53_ALIAS'
+  | 'GOOGLE_ANALYTICS'
+  | 'SEARCH_CONSOLE'
+  | 'CLARITY'
   | 'GITHUB_DISPATCH'
   | 'DYNAMODB'
   | 'SQS';
@@ -92,6 +95,15 @@ export type ManagedResources = {
   route53AliasRecords?: string[];
   validationRecordFqdns?: string[];
   workflowRunId?: string;
+  googleAnalyticsPropertyId?: string;
+  googleAnalyticsMeasurementId?: string;
+  googleAnalyticsDataStreamId?: string;
+  searchConsolePropertyId?: string;
+  searchConsoleVerified?: boolean;
+  searchConsoleVerificationRecord?: string;
+  clarityProjectId?: string;
+  analyticsIntegrationId?: string;
+  trackingEnvironment?: Record<string, string>;
 
   resourceTags?: Record<string, string>;
   ownershipToken?: string;

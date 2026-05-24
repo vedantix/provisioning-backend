@@ -69,6 +69,10 @@ export const env = {
   financeTable: optional('FINANCE_TABLE', 'vedantix-finance')!,
   adminUsersTable: optional('ADMIN_USERS_TABLE', 'vedantix-admin-users')!,
   productCatalogTable: optional('PRODUCT_CATALOG_TABLE', 'product_catalog')!,
+  analyticsIntegrationsTable: optional(
+    'ANALYTICS_INTEGRATIONS_TABLE',
+    'analytics_integrations',
+  )!,
 
   allowedRootDomain: optional('ALLOWED_ROOT_DOMAIN', 'vedantix.nl')!,
   corsAllowedOrigins: csvFromEnv('CORS_ALLOWED_ORIGINS', [
@@ -138,6 +142,41 @@ export const env = {
   base44AutoCreateTimeoutMs: numberFromEnv('BASE44_AUTOCREATE_TIMEOUT_MS', 30_000),
 
   base44ExportWebhookSecret: optional('BASE44_EXPORT_WEBHOOK_SECRET'),
+
+  googleOauthTokenUrl: optional(
+    'GOOGLE_OAUTH_TOKEN_URL',
+    'https://oauth2.googleapis.com/token',
+  )!,
+  googleAnalyticsAdminApiBaseUrl: optional(
+    'GOOGLE_ANALYTICS_ADMIN_API_BASE_URL',
+    'https://analyticsadmin.googleapis.com/v1beta',
+  )!,
+  googleSearchConsoleApiBaseUrl: optional(
+    'GOOGLE_SEARCH_CONSOLE_API_BASE_URL',
+    'https://searchconsole.googleapis.com/webmasters/v3',
+  )!,
+  googleSiteVerificationApiBaseUrl: optional(
+    'GOOGLE_SITE_VERIFICATION_API_BASE_URL',
+    'https://www.googleapis.com/siteVerification/v1',
+  )!,
+  googleClientEmail: optional('GOOGLE_CLIENT_EMAIL'),
+  googlePrivateKey: optional('GOOGLE_PRIVATE_KEY'),
+  googleAnalyticsAccountId: optional('GOOGLE_ANALYTICS_ACCOUNT_ID'),
+  googleAnalyticsTimezone: optional('GOOGLE_ANALYTICS_TIMEZONE', 'Europe/Amsterdam')!,
+  googleAnalyticsCurrency: optional('GOOGLE_ANALYTICS_CURRENCY', 'EUR')!,
+  googleSearchConsoleDnsMaxAttempts: numberFromEnv(
+    'GOOGLE_SEARCH_CONSOLE_DNS_MAX_ATTEMPTS',
+    12,
+  ),
+  googleSearchConsoleDnsDelayMs: numberFromEnv(
+    'GOOGLE_SEARCH_CONSOLE_DNS_DELAY_MS',
+    10_000,
+  ),
+
+  clarityApiBaseUrl: optional('CLARITY_API_BASE_URL'),
+  clarityApiToken: optional('CLARITY_API_TOKEN'),
+  clarityProjectsPath: optional('CLARITY_PROJECTS_PATH', '/projects')!,
+  clarityRequired: booleanFromEnv('CLARITY_REQUIRED', false),
 
   adminSessionSecret: optional('ADMIN_SESSION_SECRET', DEFAULT_ADMIN_SESSION_SECRET)!,
   adminSessionTtlHours: numberFromEnv('ADMIN_SESSION_TTL_HOURS', 24),
