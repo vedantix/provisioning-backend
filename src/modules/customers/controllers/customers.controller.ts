@@ -270,28 +270,32 @@ export class CustomersController {
       },
     );
 
-    const target =
+    const repairTarget =
       candidates.find((deployment) => deployment.status === 'SUCCEEDED') ??
       candidates.find((deployment) => deployment.status === 'OFFLINE') ??
-      candidates.find((deployment) => deployment.status === 'FAILED') ??
       null;
 
-    if (target) {
+    if (repairTarget) {
       return {
-        deployment: target,
-        mode: target.status === 'SUCCEEDED' ? 'CONTENT_ONLY' : 'REPAIR_INFRA',
+        deployment: repairTarget,
+        mode: repairTarget.status === 'SUCCEEDED' ? 'CONTENT_ONLY' : 'REPAIR_INFRA',
       };
     }
 
-    const failedDeployment =
-      currentDeployment?.status === 'FAILED'
-        ? currentDeployment
-        : deployments.find((deployment) => deployment.status === 'FAILED');
+    const failedTarget =
+      (currentDeployment?.status === 'FAILED' ? currentDeployment : null) ??
+      deployments.find((deployment) => deployment.status === 'FAILED') ??
+      null;
 
-    if (failedDeployment) {
-      throw new ConflictHttpError(
-        `Er bestaat al een gefaalde deployment voor deze klant bij stage ${failedDeployment.currentStage || failedDeployment.failureStage || 'onbekend'}. Retry eerst die stage in plaats van een nieuwe deployment te maken.`,
-      );
+    if (
+      failedTarget &&
+      failedTarget.tenantId === tenantId &&
+      failedTarget.customerId === customer.id
+    ) {
+      return {
+        deployment: failedTarget,
+        mode: 'FULL_RECONCILE',
+      };
     }
 
     return null;
