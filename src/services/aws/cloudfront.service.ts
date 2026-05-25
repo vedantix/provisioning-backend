@@ -57,6 +57,7 @@ function withRequiredOriginFields(config: DistributionConfig): DistributionConfi
       ...config.Origins,
       Items: (config.Origins?.Items ?? []).map((origin) => ({
         ...origin,
+        OriginPath: origin.OriginPath ?? '',
         CustomHeaders: origin.CustomHeaders ?? { Quantity: 0 },
       })),
       Quantity: config.Origins?.Quantity ?? config.Origins?.Items?.length ?? 0,
@@ -208,6 +209,7 @@ function buildDistributionConfig(params: {
         {
           Id: originId,
           DomainName: params.bucketRegionalDomainName,
+          OriginPath: '',
           S3OriginConfig: {
             OriginAccessIdentity: ''
           },
@@ -286,6 +288,7 @@ function buildUpdatedDistributionConfig(params: {
         {
           Id: originId,
           DomainName: params.bucketRegionalDomainName,
+          OriginPath: '',
           S3OriginConfig: {
             OriginAccessIdentity: ''
           },
