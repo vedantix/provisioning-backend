@@ -213,6 +213,7 @@ export class DeploymentsRepository {
     const existing = await this.getById(deploymentId);
     const previousRetryCount = existing?.stageStates?.[stage]?.retryCount ?? 0;
     const previousStartedAt = existing?.stageStates?.[stage]?.startedAt;
+    const shouldClearFailure = existing?.failureStage === stage;
 
     const stageState: StageExecutionState = {
       stage,
@@ -227,8 +228,9 @@ export class DeploymentsRepository {
       new UpdateCommand({
         TableName: TABLE_NAME,
         Key: { id: deploymentId },
-        UpdateExpression:
-          'SET lastSuccessfulStage = :lastSuccessfulStage, updatedAt = :updatedAt, stageStates.#stageKey = :stageState ADD version :inc',
+        UpdateExpression: shouldClearFailure
+          ? 'SET lastSuccessfulStage = :lastSuccessfulStage, updatedAt = :updatedAt, stageStates.#stageKey = :stageState REMOVE failureStage, failureCategory ADD version :inc'
+          : 'SET lastSuccessfulStage = :lastSuccessfulStage, updatedAt = :updatedAt, stageStates.#stageKey = :stageState ADD version :inc',
         ExpressionAttributeNames: {
           '#stageKey': stage,
         },
@@ -300,7 +302,7 @@ export class DeploymentsRepository {
         TableName: TABLE_NAME,
         Key: { id: deploymentId },
         UpdateExpression:
-          'SET #status = :status, updatedAt = :updatedAt ADD version :inc',
+          'SET #status = :status, updatedAt = :updatedAt REMOVE failureStage, failureCategory ADD version :inc',
         ExpressionAttributeNames: {
           '#status': 'status',
         },
