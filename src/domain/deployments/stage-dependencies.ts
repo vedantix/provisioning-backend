@@ -59,15 +59,19 @@ export type Route53AliasResult = {
 };
 
 export type GoogleAnalyticsStageResult = {
-  propertyId: string;
+  propertyId?: string;
   dataStreamId?: string;
-  measurementId: string;
+  measurementId?: string;
+  skipped?: boolean;
+  reason?: string;
 };
 
 export type SearchConsoleStageResult = {
-  propertyId: string;
+  propertyId?: string;
   verified: boolean;
   verificationRecordName?: string;
+  skipped?: boolean;
+  reason?: string;
 };
 
 export type ClarityStageResult = {

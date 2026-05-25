@@ -47,6 +47,8 @@ const DASHBOARD_METRICS: AnalyticsDashboardMetricDefinition[] = [
   },
 ];
 
+type AnalyticsProvider = 'GOOGLE_ANALYTICS' | 'SEARCH_CONSOLE' | 'CLARITY';
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -170,6 +172,12 @@ export class AnalyticsProvisionService {
       await this.persist(updated, 'GOOGLE_ANALYTICS', input);
       return updated;
     } catch (error) {
+      if (this.isSkippableProviderConfigError('GOOGLE_ANALYTICS', error)) {
+        const skipped = this.withProviderSkipped(record, 'GOOGLE_ANALYTICS', error);
+        await this.persist(skipped, 'GOOGLE_ANALYTICS', input);
+        return skipped;
+      }
+
       const failed = this.withProviderFailure(record, 'GOOGLE_ANALYTICS', error);
       await this.persist(failed, 'GOOGLE_ANALYTICS', input);
       throw error;
@@ -211,6 +219,12 @@ export class AnalyticsProvisionService {
       await this.persist(updated, 'SEARCH_CONSOLE', input);
       return updated;
     } catch (error) {
+      if (this.isSkippableProviderConfigError('SEARCH_CONSOLE', error)) {
+        const skipped = this.withProviderSkipped(record, 'SEARCH_CONSOLE', error);
+        await this.persist(skipped, 'SEARCH_CONSOLE', input);
+        return skipped;
+      }
+
       const failed = this.withProviderFailure(record, 'SEARCH_CONSOLE', error);
       await this.persist(failed, 'SEARCH_CONSOLE', input);
       throw error;
@@ -477,7 +491,7 @@ export class AnalyticsProvisionService {
 
   private withProviderFailure(
     record: AnalyticsIntegrationRecord,
-    provider: 'GOOGLE_ANALYTICS' | 'SEARCH_CONSOLE' | 'CLARITY',
+    provider: AnalyticsProvider,
     error: unknown,
   ): AnalyticsIntegrationRecord {
     const now = nowIso();
@@ -521,6 +535,72 @@ export class AnalyticsProvisionService {
     };
   }
 
+  private withProviderSkipped(
+    record: AnalyticsIntegrationRecord,
+    provider: AnalyticsProvider,
+    error: unknown,
+  ): AnalyticsIntegrationRecord {
+    const now = nowIso();
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    if (provider === 'GOOGLE_ANALYTICS') {
+      return {
+        ...record,
+        googleAnalytics: {
+          ...record.googleAnalytics,
+          status: 'SKIPPED',
+          errorMessage,
+          updatedAt: now,
+        },
+        updatedAt: now,
+      };
+    }
+
+    if (provider === 'SEARCH_CONSOLE') {
+      return {
+        ...record,
+        searchConsole: {
+          ...record.searchConsole,
+          status: 'SKIPPED',
+          verified: false,
+          errorMessage,
+          updatedAt: now,
+        },
+        updatedAt: now,
+      };
+    }
+
+    return {
+      ...record,
+      clarity: {
+        ...record.clarity,
+        status: 'SKIPPED',
+        errorMessage,
+        updatedAt: now,
+      },
+      updatedAt: now,
+    };
+  }
+
+  private isSkippableProviderConfigError(
+    provider: string,
+    error: unknown,
+  ): boolean {
+    if (!(error instanceof AppError)) {
+      return false;
+    }
+
+    if (provider === 'GOOGLE_ANALYTICS') {
+      return ['GOOGLE_ANALYTICS_CONFIG', 'GOOGLE_AUTH_CONFIG'].includes(error.code);
+    }
+
+    if (provider === 'SEARCH_CONSOLE') {
+      return error.code === 'GOOGLE_AUTH_CONFIG';
+    }
+
+    return false;
+  }
+
   private async persist(
     record: AnalyticsIntegrationRecord,
     provider: string,
@@ -555,6 +635,10 @@ export class AnalyticsProvisionService {
         return await fn();
       } catch (error) {
         lastError = error;
+        if (this.isSkippableProviderConfigError(provider, error)) {
+          throw error;
+        }
+
         logger.exception('Analytics provider attempt failed', error, {
           customerId: input.customerId,
           deploymentId: input.deploymentId,

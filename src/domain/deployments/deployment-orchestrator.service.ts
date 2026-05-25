@@ -564,6 +564,13 @@ export class DeploymentOrchestratorService {
       displayName: deployment.domain,
     });
 
+    if (result.skipped || !result.measurementId) {
+      return {
+        skipped: true,
+        reason: result.reason ?? 'Google Analytics provisioning skipped',
+      };
+    }
+
     return {
       propertyId: result.propertyId,
       dataStreamId: result.dataStreamId,
@@ -605,6 +612,14 @@ export class DeploymentOrchestratorService {
       displayName: deployment.domain,
       hostedZoneId: deployment.managedResources.hostedZoneId,
     });
+
+    if (result.skipped || !result.verified) {
+      return {
+        skipped: true,
+        verified: false,
+        reason: result.reason ?? 'Search Console provisioning skipped',
+      };
+    }
 
     return {
       propertyId: result.propertyId,

@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let AnalyticsProvisionService: typeof import('../../../src/services/analytics/analytics-provision.service').AnalyticsProvisionService;
+let AppError: typeof import('../../../src/errors/app-error').AppError;
 
 function stubRequiredEnv() {
   vi.stubEnv('AWS_REGION', 'eu-west-1');
@@ -76,6 +77,7 @@ beforeAll(async () => {
   ({ AnalyticsProvisionService } = await import(
     '../../../src/services/analytics/analytics-provision.service'
   ));
+  ({ AppError } = await import('../../../src/errors/app-error'));
 });
 
 beforeEach(() => {
@@ -154,6 +156,49 @@ describe('AnalyticsProvisionService', () => {
       errorMessage: 'Clarity API not configured',
     });
     expect(result.trackingEnvironment).not.toHaveProperty('VITE_CLARITY_PROJECT_ID');
+  });
+
+  it('skips optional Google providers when credentials are not configured', async () => {
+    const googleAnalytics = {
+      reconcileProperty: vi.fn(async () => {
+        throw new AppError(
+          'GOOGLE_ANALYTICS_ACCOUNT_ID is not configured',
+          500,
+          'GOOGLE_ANALYTICS_CONFIG',
+        );
+      }),
+      deleteProperty: vi.fn(),
+    };
+    const searchConsole = {
+      reconcileProperty: vi.fn(async () => {
+        throw new AppError(
+          'Google service account credentials are not configured',
+          500,
+          'GOOGLE_AUTH_CONFIG',
+        );
+      }),
+      deleteProperty: vi.fn(),
+    };
+    const { service } = buildService({ googleAnalytics, searchConsole });
+
+    const result = await service.provisionAnalytics({
+      tenantId: 'default',
+      customerId: 'cust_optional_google',
+      deploymentId: 'dep_optional_google',
+      domain: 'optional-google.nl',
+      hostedZoneId: 'Z123',
+    });
+
+    expect(result.googleAnalytics).toMatchObject({
+      status: 'SKIPPED',
+      errorMessage: 'GOOGLE_ANALYTICS_ACCOUNT_ID is not configured',
+    });
+    expect(result.searchConsole).toMatchObject({
+      status: 'SKIPPED',
+      verified: false,
+      errorMessage: 'Google service account credentials are not configured',
+    });
+    expect(result.trackingEnvironment).not.toHaveProperty('VITE_GA_MEASUREMENT_ID');
   });
 
   it('marks provider records as deleted during cleanup', async () => {

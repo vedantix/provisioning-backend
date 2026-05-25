@@ -355,9 +355,11 @@ dist
     });
 
     return {
-      propertyId: result.googleAnalytics.propertyId || '',
+      propertyId: result.googleAnalytics.propertyId,
       dataStreamId: result.googleAnalytics.dataStreamId,
-      measurementId: result.googleAnalytics.measurementId || '',
+      measurementId: result.googleAnalytics.measurementId,
+      skipped: result.googleAnalytics.status === 'SKIPPED',
+      reason: result.googleAnalytics.errorMessage,
     };
   }
 
@@ -379,9 +381,11 @@ dist
     });
 
     return {
-      propertyId: result.searchConsole.propertyId || '',
+      propertyId: result.searchConsole.propertyId,
       verified: result.searchConsole.verified,
       verificationRecordName: result.searchConsole.verificationRecordName,
+      skipped: result.searchConsole.status === 'SKIPPED',
+      reason: result.searchConsole.errorMessage,
     };
   }
 
