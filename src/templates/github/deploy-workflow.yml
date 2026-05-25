@@ -83,7 +83,16 @@ jobs:
             npm run build
           else
             mkdir -p dist
-            cp index.html dist/index.html
+            shopt -s dotglob nullglob
+            for item in *; do
+              case "$item" in
+                .git|.github|dist|node_modules)
+                  ;;
+                *)
+                  cp -R "$item" dist/
+                  ;;
+              esac
+            done
           fi
 
       - name: Inject analytics tags
