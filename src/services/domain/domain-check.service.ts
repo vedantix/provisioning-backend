@@ -5,7 +5,9 @@ import {
   GetHostedZoneCommand,
   Route53Client,
   ListHostedZonesByNameCommand,
+  ListResourceRecordSetsCommand,
   HostedZone,
+  ResourceRecordSet,
 } from "@aws-sdk/client-route-53";
 import { parse } from "tldts";
 import {
@@ -42,6 +44,8 @@ export type DomainCheckResult = {
 const route53 = new Route53Client({
   region: process.env.AWS_REGION,
 });
+
+const CLOUDFRONT_HOSTED_ZONE_ID = "Z2FDTNDATAQYW2";
 
 function normalizeDomain(input: string): string {
   return input
@@ -99,6 +103,88 @@ function isMatchingHostedZone(zone: HostedZone, wantedFqdn: string): boolean {
 
 function normalizeNameServer(value: string): string {
   return value.trim().toLowerCase().replace(/\.$/, "");
+}
+
+function normalizeRecordName(value: string): string {
+  return value.trim().toLowerCase().replace(/\.$/, "");
+}
+
+function toRoute53RecordName(value: string): string {
+  const normalized = normalizeRecordName(value);
+  return normalized.endsWith(".") ? normalized : `${normalized}.`;
+}
+
+function isCloudFrontAliasRecord(record?: ResourceRecordSet | null): boolean {
+  const hostedZoneId = record?.AliasTarget?.HostedZoneId;
+  const dnsName = normalizeRecordName(record?.AliasTarget?.DNSName ?? "");
+
+  return (
+    hostedZoneId === CLOUDFRONT_HOSTED_ZONE_ID &&
+    dnsName.endsWith(".cloudfront.net")
+  );
+}
+
+async function findExactHostedZoneRecord(
+  hostedZoneId: string,
+  name: string,
+  type: "A" | "AAAA"
+): Promise<ResourceRecordSet | null> {
+  const normalizedName = normalizeRecordName(name);
+
+  const result = await route53.send(
+    new ListResourceRecordSetsCommand({
+      HostedZoneId: hostedZoneId,
+      StartRecordName: toRoute53RecordName(normalizedName),
+      StartRecordType: type,
+      MaxItems: 10,
+    })
+  );
+
+  return (
+    result.ResourceRecordSets?.find(
+      (record) =>
+        normalizeRecordName(record.Name ?? "") === normalizedName &&
+        record.Type === type
+    ) ?? null
+  );
+}
+
+async function findManagedCloudFrontAliases(
+  hostedZoneId: string,
+  domains: string[]
+): Promise<Array<{ domain: string; type: "A" | "AAAA"; dnsName: string }>> {
+  const aliases: Array<{ domain: string; type: "A" | "AAAA"; dnsName: string }> = [];
+  const normalizedDomains = [...new Set(domains.map(normalizeRecordName).filter(Boolean))];
+
+  for (const domain of normalizedDomains) {
+    for (const type of ["A", "AAAA"] as const) {
+      const record = await findExactHostedZoneRecord(hostedZoneId, domain, type);
+
+      if (!isCloudFrontAliasRecord(record)) {
+        continue;
+      }
+
+      aliases.push({
+        domain,
+        type,
+        dnsName: normalizeRecordName(record?.AliasTarget?.DNSName ?? ""),
+      });
+    }
+  }
+
+  return aliases;
+}
+
+function hasManagedAlias(
+  aliases: Array<{ domain: string; type: "A" | "AAAA" }>,
+  domain: string,
+  type: "A" | "AAAA"
+): boolean {
+  const normalizedDomain = normalizeRecordName(domain);
+
+  return aliases.some(
+    (alias) => alias.domain === normalizedDomain && alias.type === type
+  );
 }
 
 function hasRoute53Delegation(
@@ -644,10 +730,41 @@ export async function checkDomainAvailability(
     lookupSafe(domain, "CNAME"),
   ]);
 
+  const wwwDomain = domain.startsWith("www.") ? domain : `www.${domain}`;
+  const managedCloudFrontAliases = await findManagedCloudFrontAliases(
+    hostedZone.id,
+    [domain, wwwDomain]
+  );
+  const domainHasManagedA = hasManagedAlias(
+    managedCloudFrontAliases,
+    domain,
+    "A"
+  );
+  const domainHasManagedAAAA = hasManagedAlias(
+    managedCloudFrontAliases,
+    domain,
+    "AAAA"
+  );
+  const wwwHasManagedA = hasManagedAlias(
+    managedCloudFrontAliases,
+    wwwDomain,
+    "A"
+  );
+  const wwwHasManagedAAAA = hasManagedAlias(
+    managedCloudFrontAliases,
+    wwwDomain,
+    "AAAA"
+  );
+  const domainDnsRecordsAreManaged =
+    cnameRecords.length === 0 &&
+    (aRecords.length === 0 || domainHasManagedA) &&
+    (aaaaRecords.length === 0 || domainHasManagedAAAA);
+
   if (
-    aRecords.length > 0 ||
-    aaaaRecords.length > 0 ||
-    cnameRecords.length > 0
+    (aRecords.length > 0 ||
+      aaaaRecords.length > 0 ||
+      cnameRecords.length > 0) &&
+    !domainDnsRecordsAreManaged
   ) {
     return {
       domain,
@@ -665,6 +782,7 @@ export async function checkDomainAvailability(
         aRecords,
         aaaaRecords,
         cnameRecords,
+        managedCloudFrontAliases,
       },
     };
   }
@@ -676,11 +794,16 @@ export async function checkDomainAvailability(
     checkHttp(`https://www.${domain}`),
   ]);
 
+  const rootHttpIsManaged =
+    (httpRoot.reachable || httpsRoot.reachable) &&
+    (domainHasManagedA || domainHasManagedAAAA);
+  const wwwHttpIsManaged =
+    (httpWww.reachable || httpsWww.reachable) &&
+    (wwwHasManagedA || wwwHasManagedAAAA);
+
   if (
-    httpRoot.reachable ||
-    httpsRoot.reachable ||
-    httpWww.reachable ||
-    httpsWww.reachable
+    ((httpRoot.reachable || httpsRoot.reachable) && !rootHttpIsManaged) ||
+    ((httpWww.reachable || httpsWww.reachable) && !wwwHttpIsManaged)
   ) {
     return {
       domain,
@@ -699,6 +822,7 @@ export async function checkDomainAvailability(
         httpsRoot,
         httpWww,
         httpsWww,
+        managedCloudFrontAliases,
       },
     };
   }
@@ -719,6 +843,7 @@ export async function checkDomainAvailability(
       aaaaRecords,
       cnameRecords,
       domainRegistration,
+      managedCloudFrontAliases,
     },
   };
 }
