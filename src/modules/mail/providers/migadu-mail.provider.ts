@@ -117,7 +117,11 @@ export class MigaduMailProvider implements MailProvider {
   async createDomain(domain: string): Promise<ProviderDomainResult> {
     const normalizedDomain = normalizeDomain(domain);
     try {
-      await this.client().post('/domains', { domain_name: normalizedDomain });
+      await this.client().post('/domains', {
+        name: normalizedDomain,
+        hosted_dns: false,
+        create_default_addresses: true,
+      });
     } catch (error) {
       const mapped = toMigaduError(error, 'createDomain');
       if (mapped.code !== 'MAIL_PROVIDER_CONFLICT') {
