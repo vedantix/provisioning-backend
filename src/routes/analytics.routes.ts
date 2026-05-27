@@ -5,14 +5,18 @@ import { requireActorContextMiddleware } from '../middleware/require-actor-conte
 import { BadRequestError, NotFoundError } from '../errors/app-error';
 import { AnalyticsProvisionService } from '../services/analytics/analytics-provision.service';
 import { EnvironmentValidationService } from '../services/analytics/environment-validation.service';
+import { GoogleAnalyticsController } from '../services/analytics/google-analytics.controller';
 import { CustomersRepository } from '../modules/customers/repositories/customers.repository';
 import { DeploymentsRepository } from '../repositories/deployments.repository';
+import { AnalyticsIntegrationsRepository } from '../repositories/analytics-integrations.repository';
 
 const router = Router();
 const analyticsService = new AnalyticsProvisionService();
 const environmentValidationService = new EnvironmentValidationService();
+const googleAnalyticsController = new GoogleAnalyticsController();
 const customersRepository = new CustomersRepository();
 const deploymentsRepository = new DeploymentsRepository();
+const analyticsIntegrationsRepository = new AnalyticsIntegrationsRepository();
 
 router.use(requireAdminAuthMiddleware);
 router.use(requireActorContextMiddleware);
@@ -121,6 +125,67 @@ router.get(
       requestId: req.ctx.requestId,
     });
   }),
+);
+
+router.get(
+  '/summary',
+  asyncHandler(async (req, res) => {
+    const integrations = await analyticsIntegrationsRepository.listByTenantId(
+      req.ctx.tenantId,
+    );
+    const providerReady = (status?: string) =>
+      status === 'SUCCEEDED' || status === 'VERIFIED' || status === 'PROVISIONED';
+    const summary = {
+      total: integrations.length,
+      ready: integrations.filter((item) =>
+        providerReady(item.googleAnalytics.status) &&
+        providerReady(item.searchConsole.status) &&
+        providerReady(item.googleAds.status),
+      ).length,
+      failed: integrations.filter((item) => item.provisioningStatus === 'FAILED').length,
+      running: integrations.filter((item) =>
+        ['PENDING', 'RUNNING', 'RETRYING'].includes(item.provisioningStatus),
+      ).length,
+      missingTrackingEnvironment: integrations.filter(
+        (item) => Object.keys(item.trackingEnvironment ?? {}).length === 0,
+      ).length,
+      providers: {
+        googleAnalytics: integrations.filter((item) =>
+          providerReady(item.googleAnalytics.status),
+        ).length,
+        searchConsole: integrations.filter((item) =>
+          providerReady(item.searchConsole.status),
+        ).length,
+        googleAds: integrations.filter((item) =>
+          providerReady(item.googleAds.status),
+        ).length,
+        clarity: integrations.filter((item) =>
+          item.clarity.status === 'SUCCEEDED' || item.clarity.status === 'SKIPPED',
+        ).length,
+      },
+      updatedAt: new Date().toISOString(),
+    };
+
+    res.status(200).json({
+      data: summary,
+      requestId: req.ctx.requestId,
+    });
+  }),
+);
+
+router.get(
+  '/google-analytics/:customerId/status',
+  asyncHandler(googleAnalyticsController.status),
+);
+
+router.post(
+  '/google-analytics/:customerId/retry',
+  asyncHandler(googleAnalyticsController.retry),
+);
+
+router.post(
+  '/google-analytics/:customerId/reconnect',
+  asyncHandler(googleAnalyticsController.reconnect),
 );
 
 router.delete(

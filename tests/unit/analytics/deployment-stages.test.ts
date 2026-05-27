@@ -14,7 +14,7 @@ describe('analytics deployment stages', () => {
       'CLOUDFRONT',
       'ROUTE53_ALIAS',
       'GOOGLE_ANALYTICS',
-      'SEARCH_CONSOLE',
+      'GOOGLE_SEARCH_CONSOLE',
       'GOOGLE_ADS',
       'CLARITY',
       'TRACKING_INJECTION',

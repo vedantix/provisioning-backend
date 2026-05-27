@@ -10,6 +10,9 @@ export type MarketingStackEnvironmentValidation = {
 
 const REQUIRED_GOOGLE_ENV = [
   'GOOGLE_ANALYTICS_ACCOUNT_ID',
+] as const;
+
+const REQUIRED_GOOGLE_OAUTH_ENV = [
   'GOOGLE_CLIENT_ID',
   'GOOGLE_CLIENT_SECRET',
   'GOOGLE_REFRESH_TOKEN',
@@ -26,10 +29,24 @@ function hasEnv(name: string): boolean {
 
 export class EnvironmentValidationService {
   validateMarketingStackEnvironment(): MarketingStackEnvironmentValidation {
-    const missing = [...REQUIRED_GOOGLE_ENV, ...REQUIRED_ADS_ENV].filter(
+    const missing: string[] = [...REQUIRED_GOOGLE_ENV, ...REQUIRED_ADS_ENV].filter(
       (name) => !hasEnv(name),
     );
+    const hasEncryptedOAuthSecret = hasEnv('GOOGLE_OAUTH_SECRET_ARN');
+
+    if (!hasEncryptedOAuthSecret) {
+      missing.push(
+        ...REQUIRED_GOOGLE_OAUTH_ENV.filter((name) => !hasEnv(name)),
+      );
+    }
+
     const warnings: string[] = [];
+
+    if (hasEncryptedOAuthSecret) {
+      warnings.push(
+        'GOOGLE_OAUTH_SECRET_ARN is set; Google OAuth tokens will be loaded from AWS Secrets Manager instead of plain environment variables.',
+      );
+    }
 
     if (!env.googleAdsLoginCustomerId) {
       warnings.push(
@@ -80,19 +97,15 @@ export class EnvironmentValidationService {
       provider: 'MARKETING_STACK',
       missing: validation.missing,
       warnings: validation.warnings,
-      strict: env.googleMarketingStackRequired,
+      strict: true,
     };
 
-    if (env.googleMarketingStackRequired) {
-      logger.error('Marketing stack environment validation failed', metadata);
-      throw new AppError(
-        `Marketing stack environment is incomplete: ${validation.missing.join(', ')}`,
-        500,
-        'MARKETING_ENV_MISSING',
-        metadata,
-      );
-    }
-
-    logger.warn('Marketing stack environment validation warning', metadata);
+    logger.error('Marketing stack environment validation failed', metadata);
+    throw new AppError(
+      `Marketing stack environment is incomplete: ${validation.missing.join(', ')}`,
+      500,
+      'MARKETING_ENV_MISSING',
+      metadata,
+    );
   }
 }

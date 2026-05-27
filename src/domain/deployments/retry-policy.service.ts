@@ -74,7 +74,7 @@ export class RetryPolicyService {
           'CLOUDFRONT',
           'ROUTE53_ALIAS',
           'GOOGLE_ANALYTICS',
-          'SEARCH_CONSOLE',
+          'GOOGLE_SEARCH_CONSOLE',
           'GOOGLE_ADS',
           'CLARITY',
           'TRACKING_INJECTION',
@@ -87,7 +87,7 @@ export class RetryPolicyService {
         return [
           'ROUTE53_ALIAS',
           'GOOGLE_ANALYTICS',
-          'SEARCH_CONSOLE',
+          'GOOGLE_SEARCH_CONSOLE',
           'GOOGLE_ADS',
           'CLARITY',
           'TRACKING_INJECTION',
@@ -99,7 +99,7 @@ export class RetryPolicyService {
       case 'ROUTE53_ALIAS':
         return [
           'GOOGLE_ANALYTICS',
-          'SEARCH_CONSOLE',
+          'GOOGLE_SEARCH_CONSOLE',
           'GOOGLE_ADS',
           'CLARITY',
           'TRACKING_INJECTION',
@@ -109,8 +109,9 @@ export class RetryPolicyService {
         ];
 
       case 'GOOGLE_ANALYTICS':
-        return ['SEARCH_CONSOLE', 'GOOGLE_ADS', 'CLARITY', 'TRACKING_INJECTION', 'GITHUB_DISPATCH', 'DYNAMODB', 'SQS'];
+        return ['GOOGLE_SEARCH_CONSOLE', 'GOOGLE_ADS', 'CLARITY', 'TRACKING_INJECTION', 'GITHUB_DISPATCH', 'DYNAMODB', 'SQS'];
 
+      case 'GOOGLE_SEARCH_CONSOLE':
       case 'SEARCH_CONSOLE':
         return ['GOOGLE_ADS', 'CLARITY', 'TRACKING_INJECTION', 'GITHUB_DISPATCH', 'DYNAMODB', 'SQS'];
 

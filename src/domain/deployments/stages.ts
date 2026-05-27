@@ -11,7 +11,7 @@ export const CREATE_DEPLOYMENT_STAGES: DeploymentStage[] = [
   'CLOUDFRONT',
   'ROUTE53_ALIAS',
   'GOOGLE_ANALYTICS',
-  'SEARCH_CONSOLE',
+  'GOOGLE_SEARCH_CONSOLE',
   'GOOGLE_ADS',
   'CLARITY',
   'TRACKING_INJECTION',
@@ -22,7 +22,9 @@ export const CREATE_DEPLOYMENT_STAGES: DeploymentStage[] = [
 
 export function getNextCreateStage(stage?: AnyStage): DeploymentStage | undefined {
   if (!stage) return CREATE_DEPLOYMENT_STAGES[0];
-  const index = CREATE_DEPLOYMENT_STAGES.indexOf(stage as DeploymentStage);
+  const normalizedStage =
+    stage === 'SEARCH_CONSOLE' ? 'GOOGLE_SEARCH_CONSOLE' : stage;
+  const index = CREATE_DEPLOYMENT_STAGES.indexOf(normalizedStage as DeploymentStage);
   if (index === -1) return CREATE_DEPLOYMENT_STAGES[0];
   return CREATE_DEPLOYMENT_STAGES[index + 1];
 }

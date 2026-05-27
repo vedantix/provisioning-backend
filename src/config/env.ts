@@ -164,10 +164,10 @@ export const env = {
   googleClientId: optional('GOOGLE_CLIENT_ID'),
   googleClientSecret: optional('GOOGLE_CLIENT_SECRET'),
   googleRefreshToken: optional('GOOGLE_REFRESH_TOKEN'),
+  googleOauthSecretArn: optional('GOOGLE_OAUTH_SECRET_ARN'),
   googleAnalyticsAccountId: optional('GOOGLE_ANALYTICS_ACCOUNT_ID'),
   googleAnalyticsTimezone: optional('GOOGLE_ANALYTICS_TIMEZONE', 'Europe/Amsterdam')!,
   googleAnalyticsCurrency: optional('GOOGLE_ANALYTICS_CURRENCY', 'EUR')!,
-  googleMarketingStackRequired: booleanFromEnv('GOOGLE_MARKETING_STACK_REQUIRED', false),
   googleSearchConsoleDnsMaxAttempts: numberFromEnv(
     'GOOGLE_SEARCH_CONSOLE_DNS_MAX_ATTEMPTS',
     12,

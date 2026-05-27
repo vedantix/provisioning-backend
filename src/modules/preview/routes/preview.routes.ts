@@ -4,10 +4,14 @@ import { asyncHandler } from "../../../middleware/async-handler";
 import { CustomersRepository } from "../../customers/repositories/customers.repository";
 import type { CustomerRecord } from "../../customers/types/customer.types";
 import { PreviewService } from "../services/preview.service";
+import { AnalyticsIntegrationsRepository } from "../../../repositories/analytics-integrations.repository";
+import { TrackingInjectionService } from "../../../services/analytics/tracking-injection.service";
 
 const router = Router();
 const repo = new CustomersRepository();
 const previewService = new PreviewService();
+const analyticsRepository = new AnalyticsIntegrationsRepository();
+const trackingInjectionService = new TrackingInjectionService();
 
 function slugify(value: string): string {
   return String(value || "")
@@ -474,11 +478,19 @@ router.get(
       response.targetUrl,
       result.preview.path,
     );
+    const analytics = await analyticsRepository.getByCustomerId(result.customer.id);
+    const htmlWithTracking =
+      analytics?.tenantId === tenantId
+        ? trackingInjectionService.injectIntoHtml(
+            html,
+            analytics.trackingEnvironment ?? {},
+          )
+        : html;
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
     res.setHeader("Cache-Control", "no-store");
-    return res.status(200).send(html);
+    return res.status(200).send(htmlWithTracking);
   }),
 );
 

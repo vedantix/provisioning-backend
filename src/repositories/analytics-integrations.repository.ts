@@ -103,6 +103,30 @@ export class AnalyticsIntegrationsRepository {
     return (result.Items?.[0] as AnalyticsIntegrationRecord | undefined) ?? null;
   }
 
+  async listByTenantId(tenantId: string): Promise<AnalyticsIntegrationRecord[]> {
+    let result;
+
+    try {
+      result = await ddb.send(
+        new ScanCommand({
+          TableName: this.tableName,
+          FilterExpression: 'tenantId = :tenantId',
+          ExpressionAttributeValues: {
+            ':tenantId': tenantId,
+          },
+        }),
+      );
+    } catch (error) {
+      if (isResourceNotFound(error)) {
+        return [];
+      }
+
+      throw error;
+    }
+
+    return (result.Items ?? []) as AnalyticsIntegrationRecord[];
+  }
+
   async upsert(record: AnalyticsIntegrationRecord): Promise<void> {
     await this.ensureTableExists();
 

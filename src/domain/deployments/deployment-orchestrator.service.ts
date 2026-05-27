@@ -226,6 +226,7 @@ export class DeploymentOrchestratorService {
         return this.handleRoute53Alias(deployment);
       case 'GOOGLE_ANALYTICS':
         return this.handleGoogleAnalytics(deployment);
+      case 'GOOGLE_SEARCH_CONSOLE':
       case 'SEARCH_CONSOLE':
         return this.handleSearchConsole(deployment);
       case 'GOOGLE_ADS':
@@ -605,7 +606,7 @@ export class DeploymentOrchestratorService {
     }
 
     if (!deployment.managedResources.hostedZoneId) {
-      throw new Error('Missing hostedZoneId before SEARCH_CONSOLE');
+      throw new Error('Missing hostedZoneId before GOOGLE_SEARCH_CONSOLE');
     }
 
     const result = await this.deps.searchConsole({

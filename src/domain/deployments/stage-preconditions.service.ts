@@ -90,12 +90,13 @@ export class StagePreconditionsService {
         this.assertHasDomain(deployment);
         return;
 
+      case 'GOOGLE_SEARCH_CONSOLE':
       case 'SEARCH_CONSOLE':
         this.assertHasDomain(deployment);
         this.assertManagedResource(
           deployment,
           'hostedZoneId',
-          'Missing hostedZoneId before SEARCH_CONSOLE',
+          `Missing hostedZoneId before ${stage}`,
         );
         return;
 

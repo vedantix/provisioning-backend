@@ -153,6 +153,7 @@ describe('AnalyticsProvisionService', () => {
       VITE_CLARITY_PROJECT_ID: 'clarity123',
       NEXT_PUBLIC_CLARITY_PROJECT_ID: 'clarity123',
       VITE_GOOGLE_ADS_CONVERSION_ID: '1234567890',
+      VITE_GOOGLE_SITE_VERIFICATION: 'test-token',
     });
 
     await service.provisionAnalytics({

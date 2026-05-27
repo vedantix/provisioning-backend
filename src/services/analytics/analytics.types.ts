@@ -73,6 +73,7 @@ export type GoogleAdsConversionState = {
   conversionLabel?: string;
   conversionName: string;
   status: AnalyticsProviderStatus;
+  enhancedConversionsForLeadsEnabled?: boolean;
   globalSiteTag?: string;
   eventSnippet?: string;
   updatedAt?: string;

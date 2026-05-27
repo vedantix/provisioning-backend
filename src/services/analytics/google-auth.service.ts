@@ -1,16 +1,14 @@
 import crypto from 'node:crypto';
 import { env } from '../../config/env';
 import { AppError } from '../../errors/app-error';
+import {
+  GoogleOAuthTokenRepository,
+  type GoogleOAuthCredentials,
+} from './google-oauth-token.repository';
 
 type TokenCacheEntry = {
   accessToken: string;
   expiresAt: number;
-};
-
-type OAuthCredentials = {
-  clientId: string;
-  clientSecret: string;
-  refreshToken: string;
 };
 
 function base64Url(input: string | Buffer): string {
@@ -46,22 +44,13 @@ function assertGoogleCredentials(): {
   };
 }
 
-function getOAuthCredentials(): OAuthCredentials | null {
-  if (!env.googleClientId || !env.googleClientSecret || !env.googleRefreshToken) {
-    return null;
-  }
-
-  return {
-    clientId: env.googleClientId,
-    clientSecret: env.googleClientSecret,
-    refreshToken: env.googleRefreshToken,
-  };
-}
-
 export class GoogleServiceAccountAuth {
   private readonly tokenCache = new Map<string, TokenCacheEntry>();
 
-  constructor(private readonly tokenUrl = env.googleOauthTokenUrl) {}
+  constructor(
+    private readonly tokenUrl = env.googleOauthTokenUrl,
+    private readonly oauthTokenRepository = new GoogleOAuthTokenRepository(),
+  ) {}
 
   async getAccessToken(scopes: string[]): Promise<string> {
     const scopeKey = [...new Set(scopes)].sort().join(' ');
@@ -72,7 +61,7 @@ export class GoogleServiceAccountAuth {
       return cached.accessToken;
     }
 
-    const oauthCredentials = getOAuthCredentials();
+    const oauthCredentials = await this.oauthTokenRepository.getOAuthCredentials();
 
     if (oauthCredentials) {
       return this.getOAuthRefreshTokenAccessToken(
@@ -149,7 +138,7 @@ export class GoogleServiceAccountAuth {
   }
 
   private async getOAuthRefreshTokenAccessToken(
-    credentials: OAuthCredentials,
+    credentials: GoogleOAuthCredentials,
     scopeKey: string,
     nowSeconds: number,
   ): Promise<string> {

@@ -31,6 +31,11 @@ on:
         required: false
         default: ""
         type: string
+      google_site_verification:
+        description: "Google Search Console site verification token"
+        required: false
+        default: ""
+        type: string
       google_ads_conversion_id:
         description: "Google Ads conversion id without AW- prefix"
         required: false
@@ -87,6 +92,8 @@ jobs:
           NEXT_PUBLIC_GA_MEASUREMENT_ID: ${{ inputs.ga_measurement_id }}
           VITE_CLARITY_PROJECT_ID: ${{ inputs.clarity_project_id }}
           NEXT_PUBLIC_CLARITY_PROJECT_ID: ${{ inputs.clarity_project_id }}
+          VITE_GOOGLE_SITE_VERIFICATION: ${{ inputs.google_site_verification }}
+          NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION: ${{ inputs.google_site_verification }}
           VITE_GOOGLE_ADS_CONVERSION_ID: ${{ inputs.google_ads_conversion_id }}
           NEXT_PUBLIC_GOOGLE_ADS_CONVERSION_ID: ${{ inputs.google_ads_conversion_id }}
           VITE_GOOGLE_ADS_CONVERSION_LABELS: ${{ inputs.google_ads_conversion_labels }}
@@ -113,6 +120,7 @@ jobs:
         env:
           GA_MEASUREMENT_ID: ${{ inputs.ga_measurement_id }}
           CLARITY_PROJECT_ID: ${{ inputs.clarity_project_id }}
+          GOOGLE_SITE_VERIFICATION: ${{ inputs.google_site_verification }}
           GOOGLE_ADS_CONVERSION_ID: ${{ inputs.google_ads_conversion_id }}
           GOOGLE_ADS_CONVERSION_LABELS: ${{ inputs.google_ads_conversion_labels }}
         run: |
@@ -125,6 +133,7 @@ jobs:
 
           const ga = (process.env.GA_MEASUREMENT_ID || '').trim();
           const clarity = (process.env.CLARITY_PROJECT_ID || '').trim();
+          const googleSiteVerification = (process.env.GOOGLE_SITE_VERIFICATION || '').trim();
           const googleAdsConversionId = (process.env.GOOGLE_ADS_CONVERSION_ID || '').trim();
           let googleAdsLabels = {};
           try {
@@ -132,12 +141,16 @@ jobs:
           } catch {
             googleAdsLabels = {};
           }
-          if (!ga && !clarity && !googleAdsConversionId) {
+          if (!ga && !clarity && !googleAdsConversionId && !googleSiteVerification) {
             process.exit(0);
           }
 
           let html = fs.readFileSync(file, 'utf8');
           const tags = [];
+
+          if (googleSiteVerification && !html.includes('name="google-site-verification"')) {
+            tags.push(`<meta name="google-site-verification" content="${googleSiteVerification.replace(/^google-site-verification=/i, '').replace(/"/g, '&quot;')}">`);
+          }
 
           if (ga && !html.includes(`googletagmanager.com/gtag/js?id=${ga}`)) {
             tags.push(`<script async src="https://www.googletagmanager.com/gtag/js?id=${ga}"></script>`);

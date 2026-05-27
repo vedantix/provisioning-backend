@@ -14,12 +14,13 @@ const CONVERSION_EVENTS: Array<{
   event: GoogleAdsConversionEvent;
   suffix: string;
   category: string;
+  enhancedConversionsForLeads: boolean;
 }> = [
-  { event: 'LEAD', suffix: 'Lead', category: 'SUBMIT_LEAD_FORM' },
-  { event: 'WHATSAPP_CLICK', suffix: 'WhatsApp click', category: 'CONTACT' },
-  { event: 'CONTACT_FORM', suffix: 'Contact form', category: 'SUBMIT_LEAD_FORM' },
-  { event: 'BOOKING', suffix: 'Booking', category: 'BOOK_APPOINTMENT' },
-  { event: 'PURCHASE', suffix: 'Purchase', category: 'PURCHASE' },
+  { event: 'LEAD', suffix: 'Lead', category: 'SUBMIT_LEAD_FORM', enhancedConversionsForLeads: true },
+  { event: 'WHATSAPP_CLICK', suffix: 'WhatsApp click', category: 'CONTACT', enhancedConversionsForLeads: true },
+  { event: 'CONTACT_FORM', suffix: 'Contact form', category: 'SUBMIT_LEAD_FORM', enhancedConversionsForLeads: true },
+  { event: 'BOOKING', suffix: 'Booking', category: 'BOOK_APPOINTMENT', enhancedConversionsForLeads: true },
+  { event: 'PURCHASE', suffix: 'Purchase', category: 'PURCHASE', enhancedConversionsForLeads: false },
 ];
 
 type GoogleAdsMutateResponse = {
@@ -112,6 +113,7 @@ export class GoogleAdsService {
         conversionName,
         event: definition.event,
         category: definition.category,
+        enhancedConversionsForLeads: definition.enhancedConversionsForLeads,
         existing,
         customerId: input.customerId,
         deploymentId: input.deploymentId,
@@ -160,6 +162,7 @@ export class GoogleAdsService {
     conversionName: string;
     event: GoogleAdsConversionEvent;
     category: string;
+    enhancedConversionsForLeads: boolean;
     existing?: GoogleAdsConversionState;
     customerId?: string;
     deploymentId?: string;
@@ -208,6 +211,7 @@ export class GoogleAdsService {
       conversionId,
       conversionLabel: parseConversionLabel(tagSnippet?.eventSnippet),
       conversionName: hydrated.name || input.conversionName,
+      enhancedConversionsForLeadsEnabled: input.enhancedConversionsForLeads,
       globalSiteTag: tagSnippet?.globalSiteTag,
       eventSnippet: tagSnippet?.eventSnippet,
       status: 'SUCCEEDED',
@@ -219,6 +223,7 @@ export class GoogleAdsService {
     googleAdsCustomerId: string;
     conversionName: string;
     category: string;
+    enhancedConversionsForLeads: boolean;
   }): Promise<string> {
     const response = await this.googleAdsRequest<GoogleAdsMutateResponse>(
       input.googleAdsCustomerId,
@@ -233,6 +238,7 @@ export class GoogleAdsService {
                 category: input.category,
                 type: 'WEBPAGE',
                 status: 'ENABLED',
+                enhancedConversionsForLeadsEnabled: input.enhancedConversionsForLeads,
                 valueSettings: {
                   defaultValue: 0,
                   alwaysUseDefaultValue: true,

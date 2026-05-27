@@ -87,6 +87,7 @@ function initialClarity(status: AnalyticsProviderStatus = 'NOT_STARTED') {
 
 function buildTrackingEnvironment(input: {
   measurementId?: string;
+  searchConsoleVerificationToken?: string;
   googleAds?: GoogleAdsProvisionResult;
   clarityProjectId?: string;
 }): Record<string, string> {
@@ -95,6 +96,18 @@ function buildTrackingEnvironment(input: {
   if (input.measurementId) {
     envVars.VITE_GA_MEASUREMENT_ID = input.measurementId;
     envVars.NEXT_PUBLIC_GA_MEASUREMENT_ID = input.measurementId;
+  }
+
+  if (input.searchConsoleVerificationToken) {
+    const verification = input.searchConsoleVerificationToken
+      .replace(/^google-site-verification=/i, '')
+      .replace(/^"|"$/g, '')
+      .trim();
+
+    if (verification) {
+      envVars.VITE_GOOGLE_SITE_VERIFICATION = verification;
+      envVars.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION = verification;
+    }
   }
 
   if (input.googleAds) {
@@ -167,6 +180,7 @@ export class AnalyticsProvisionService {
       clarity: afterClarity.clarity,
       trackingEnvironment: buildTrackingEnvironment({
         measurementId: afterGoogle.googleAnalytics.measurementId,
+        searchConsoleVerificationToken: afterSearch.searchConsole.verificationToken,
         googleAds: afterGoogleAds.googleAds.customerId
           ? {
               customerId: afterGoogleAds.googleAds.customerId,
@@ -358,6 +372,7 @@ export class AnalyticsProvisionService {
     const record = await this.ensureRecord(input);
     const trackingEnvironment = buildTrackingEnvironment({
       measurementId: record.googleAnalytics.measurementId,
+      searchConsoleVerificationToken: record.searchConsole.verificationToken,
       googleAds: record.googleAds.customerId
         ? {
             customerId: record.googleAds.customerId,
@@ -574,6 +589,7 @@ export class AnalyticsProvisionService {
       },
       trackingEnvironment: buildTrackingEnvironment({
         measurementId: result.measurementId,
+        searchConsoleVerificationToken: record.searchConsole.verificationToken,
         googleAds: record.googleAds.customerId
           ? {
               customerId: record.googleAds.customerId,
@@ -608,6 +624,18 @@ export class AnalyticsProvisionService {
         status: result.verified ? 'SUCCEEDED' : 'PENDING',
         updatedAt: now,
       },
+      trackingEnvironment: buildTrackingEnvironment({
+        measurementId: record.googleAnalytics.measurementId,
+        searchConsoleVerificationToken: result.verificationToken,
+        googleAds: record.googleAds.customerId
+          ? {
+              customerId: record.googleAds.customerId,
+              conversionId: record.googleAds.conversionId,
+              conversions: record.googleAds.conversions,
+            }
+          : undefined,
+        clarityProjectId: record.clarity.projectId,
+      }),
       provisioningStatus: 'RUNNING',
       timeline: this.appendTimeline(record, 'SEARCH_CONSOLE', result.verified ? 'SUCCEEDED' : 'PENDING'),
       updatedAt: now,
@@ -632,6 +660,7 @@ export class AnalyticsProvisionService {
       },
       trackingEnvironment: buildTrackingEnvironment({
         measurementId: record.googleAnalytics.measurementId,
+        searchConsoleVerificationToken: record.searchConsole.verificationToken,
         googleAds: result,
         clarityProjectId: record.clarity.projectId,
       }),
@@ -668,6 +697,7 @@ export class AnalyticsProvisionService {
       clarity,
       trackingEnvironment: buildTrackingEnvironment({
         measurementId: record.googleAnalytics.measurementId,
+        searchConsoleVerificationToken: record.searchConsole.verificationToken,
         googleAds: record.googleAds.customerId
           ? {
               customerId: record.googleAds.customerId,

@@ -16,7 +16,7 @@ The create deployment stages are:
 8. `CLOUDFRONT`
 9. `ROUTE53_ALIAS`
 10. `GOOGLE_ANALYTICS`
-11. `SEARCH_CONSOLE`
+11. `GOOGLE_SEARCH_CONSOLE`
 12. `GOOGLE_ADS`
 13. `CLARITY`
 14. `TRACKING_INJECTION`
@@ -30,6 +30,8 @@ Analytics runs after DNS and CloudFront aliases are ready, but before GitHub Act
 - `NEXT_PUBLIC_GA_MEASUREMENT_ID`
 - `VITE_CLARITY_PROJECT_ID`
 - `NEXT_PUBLIC_CLARITY_PROJECT_ID`
+- `VITE_GOOGLE_SITE_VERIFICATION`
+- `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION`
 - `VITE_GOOGLE_ADS_CONVERSION_ID`
 - `NEXT_PUBLIC_GOOGLE_ADS_CONVERSION_ID`
 - `VITE_GOOGLE_ADS_CONVERSION_LABELS`
@@ -83,6 +85,8 @@ Record shape:
   "trackingEnvironment": {
     "VITE_GA_MEASUREMENT_ID": "G-XXXXXXXXXX",
     "NEXT_PUBLIC_GA_MEASUREMENT_ID": "G-XXXXXXXXXX",
+    "VITE_GOOGLE_SITE_VERIFICATION": "google-verification-token",
+    "NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION": "google-verification-token",
     "VITE_GOOGLE_ADS_CONVERSION_ID": "1234567890",
     "NEXT_PUBLIC_GOOGLE_ADS_CONVERSION_ID": "1234567890",
     "VITE_GOOGLE_ADS_CONVERSION_LABELS": "{\"LEAD\":\"abc123\"}",
@@ -95,7 +99,7 @@ Record shape:
 
 ## Google Setup
 
-Create a Google Cloud OAuth client and store a long-lived refresh token for the Vedantix admin Google account. The refresh-token flow is preferred because it can access Google Analytics Admin, Search Console, Site Verification and Google Ads with one shared authentication service. The existing service-account variables remain supported as a legacy fallback for Google Analytics/Search Console only.
+Create a Google Cloud OAuth client and store a long-lived refresh token for the Vedantix admin Google account. The refresh-token flow is required for the production marketing stack because it can access Google Analytics Admin, Search Console, Site Verification and Google Ads with one shared authentication service.
 
 Required APIs and scopes:
 
@@ -118,6 +122,7 @@ Environment variables:
 GOOGLE_CLIENT_ID=replace-with-google-oauth-client-id
 GOOGLE_CLIENT_SECRET=replace-with-google-oauth-client-secret
 GOOGLE_REFRESH_TOKEN=replace-with-google-oauth-refresh-token
+GOOGLE_OAUTH_SECRET_ARN=
 
 GOOGLE_CLIENT_EMAIL=vedantix-analytics@project-id.iam.gserviceaccount.com
 GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
@@ -126,7 +131,6 @@ GOOGLE_ANALYTICS_TIMEZONE=Europe/Amsterdam
 GOOGLE_ANALYTICS_CURRENCY=EUR
 GOOGLE_SEARCH_CONSOLE_DNS_MAX_ATTEMPTS=12
 GOOGLE_SEARCH_CONSOLE_DNS_DELAY_MS=10000
-GOOGLE_MARKETING_STACK_REQUIRED=false
 
 GOOGLE_ADS_API_BASE_URL=https://googleads.googleapis.com
 GOOGLE_ADS_API_VERSION=v24
@@ -137,7 +141,7 @@ GOOGLE_ADS_LOGIN_CUSTOMER_ID=1234567890
 
 Search Console domain verification uses Site Verification DNS TXT tokens. The backend writes the TXT record to Route53 and waits until public DNS resolves before calling verification.
 
-`GOOGLE_MARKETING_STACK_REQUIRED=false` lets the backend boot while credentials are being installed. Provisioning itself still fails fast when required Google/Ads variables are missing. Set it to `true` after production credentials are configured if startup should hard-fail on missing marketing stack configuration.
+Startup validation is strict. The backend fails during boot when the Google/Ads marketing stack is incomplete. For encrypted token storage, set `GOOGLE_OAUTH_SECRET_ARN` to an AWS Secrets Manager secret containing `clientId`, `clientSecret` and `refreshToken`; when that ARN is set the plain OAuth environment variables are not required.
 
 ## Google Ads
 

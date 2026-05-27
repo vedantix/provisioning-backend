@@ -8,8 +8,11 @@ export type DeploymentStage =
   | "CLOUDFRONT"
   | "ROUTE53_ALIAS"
   | "GOOGLE_ANALYTICS"
+  | "GOOGLE_SEARCH_CONSOLE"
   | "SEARCH_CONSOLE"
+  | "GOOGLE_ADS"
   | "CLARITY"
+  | "TRACKING_INJECTION"
   | "GITHUB_DISPATCH"
   | "DYNAMODB"
   | "SQS";
