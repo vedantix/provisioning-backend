@@ -16,7 +16,7 @@ function optionalNumber(value: number | string | undefined, fallback: number): n
 export const mailConfig = {
   provider: 'MIGADU',
   migadu: {
-    apiBaseUrl: env.migaduApiBaseUrl || 'https://admin.migadu.com/api/v1',
+    apiBaseUrl: env.migaduApiBaseUrl || 'https://api.migadu.com/v1',
     username: env.migaduUsername || '',
     password: env.migaduPassword || '',
     requestTimeoutMs: optionalNumber(env.migaduRequestTimeoutMs, 20000),

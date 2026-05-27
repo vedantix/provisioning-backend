@@ -127,7 +127,7 @@ export const env = {
   alertTopicArn: optional('ALERT_TOPIC_ARN'),
 
   mailProvider: optional('MAIL_PROVIDER', 'MIGADU')!,
-  migaduApiBaseUrl: optional('MIGADU_API_BASE_URL', 'https://admin.migadu.com/api/v1')!,
+  migaduApiBaseUrl: optional('MIGADU_API_BASE_URL', 'https://api.migadu.com/v1')!,
   migaduUsername: optional('MIGADU_USERNAME'),
   migaduPassword: optional('MIGADU_PASSWORD'),
   migaduRequestTimeoutMs: numberFromEnv('MIGADU_REQUEST_TIMEOUT_MS', 20_000),
