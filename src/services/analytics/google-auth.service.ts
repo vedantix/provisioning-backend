@@ -7,6 +7,12 @@ type TokenCacheEntry = {
   expiresAt: number;
 };
 
+type OAuthCredentials = {
+  clientId: string;
+  clientSecret: string;
+  refreshToken: string;
+};
+
 function base64Url(input: string | Buffer): string {
   return Buffer.from(input)
     .toString('base64')
@@ -40,6 +46,18 @@ function assertGoogleCredentials(): {
   };
 }
 
+function getOAuthCredentials(): OAuthCredentials | null {
+  if (!env.googleClientId || !env.googleClientSecret || !env.googleRefreshToken) {
+    return null;
+  }
+
+  return {
+    clientId: env.googleClientId,
+    clientSecret: env.googleClientSecret,
+    refreshToken: env.googleRefreshToken,
+  };
+}
+
 export class GoogleServiceAccountAuth {
   private readonly tokenCache = new Map<string, TokenCacheEntry>();
 
@@ -52,6 +70,16 @@ export class GoogleServiceAccountAuth {
 
     if (cached && cached.expiresAt - 60 > nowSeconds) {
       return cached.accessToken;
+    }
+
+    const oauthCredentials = getOAuthCredentials();
+
+    if (oauthCredentials) {
+      return this.getOAuthRefreshTokenAccessToken(
+        oauthCredentials,
+        scopeKey,
+        nowSeconds,
+      );
     }
 
     const credentials = assertGoogleCredentials();
@@ -118,5 +146,52 @@ export class GoogleServiceAccountAuth {
       .sign(credentials.privateKey);
 
     return `${unsigned}.${base64Url(signature)}`;
+  }
+
+  private async getOAuthRefreshTokenAccessToken(
+    credentials: OAuthCredentials,
+    scopeKey: string,
+    nowSeconds: number,
+  ): Promise<string> {
+    const response = await fetch(this.tokenUrl, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        client_id: credentials.clientId,
+        client_secret: credentials.clientSecret,
+        refresh_token: credentials.refreshToken,
+        scope: scopeKey,
+      }),
+    });
+
+    const payload = (await response.json().catch(() => ({}))) as {
+      access_token?: string;
+      expires_in?: number;
+      error?: string;
+      error_description?: string;
+    };
+
+    if (!response.ok || !payload.access_token) {
+      throw new AppError(
+        payload.error_description || payload.error || 'Google OAuth refresh failed',
+        response.status || 500,
+        'GOOGLE_OAUTH_REFRESH_FAILED',
+        {
+          status: response.status,
+          error: payload.error,
+        },
+      );
+    }
+
+    const expiresAt = nowSeconds + (payload.expires_in ?? 3600);
+    this.tokenCache.set(scopeKey, {
+      accessToken: payload.access_token,
+      expiresAt,
+    });
+
+    return payload.access_token;
   }
 }

@@ -42,8 +42,10 @@ import { idempotencyMiddleware } from "./middleware/idempotency.middleware";
 
 import { env } from "./config/env";
 import { logger } from "./lib/logger";
+import { EnvironmentValidationService } from "./services/analytics/environment-validation.service";
 
 const app = express();
+new EnvironmentValidationService().validateStartup();
 
 const allowedOrigins = new Set(env.corsAllowedOrigins);
 

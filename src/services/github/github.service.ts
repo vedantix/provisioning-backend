@@ -122,6 +122,10 @@ function buildDeploymentWorkflowInputs(params: {
     params.analyticsEnv?.VITE_GA_MEASUREMENT_ID?.trim() ?? '';
   const clarityProjectId =
     params.analyticsEnv?.VITE_CLARITY_PROJECT_ID?.trim() ?? '';
+  const googleAdsConversionId =
+    params.analyticsEnv?.VITE_GOOGLE_ADS_CONVERSION_ID?.trim() ?? '';
+  const googleAdsConversionLabels =
+    params.analyticsEnv?.VITE_GOOGLE_ADS_CONVERSION_LABELS?.trim() ?? '';
 
   if (gaMeasurementId) {
     inputs.ga_measurement_id = gaMeasurementId;
@@ -129,6 +133,14 @@ function buildDeploymentWorkflowInputs(params: {
 
   if (clarityProjectId) {
     inputs.clarity_project_id = clarityProjectId;
+  }
+
+  if (googleAdsConversionId) {
+    inputs.google_ads_conversion_id = googleAdsConversionId;
+  }
+
+  if (googleAdsConversionLabels) {
+    inputs.google_ads_conversion_labels = googleAdsConversionLabels;
   }
 
   return inputs;

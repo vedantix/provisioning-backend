@@ -1,10 +1,40 @@
-export type AnalyticsProviderStatus =
+export type AnalyticsProvisioningStatus =
+  | 'NOT_STARTED'
   | 'PENDING'
+  | 'RUNNING'
+  | 'SUCCEEDED'
+  | 'RETRYING'
+  | 'FAILED'
+  | 'DISCONNECTED';
+
+export type AnalyticsProviderStatus =
+  | AnalyticsProvisioningStatus
   | 'PROVISIONED'
   | 'VERIFIED'
-  | 'FAILED'
   | 'DELETED'
   | 'SKIPPED';
+
+export type AnalyticsProviderName =
+  | 'GOOGLE_ANALYTICS'
+  | 'SEARCH_CONSOLE'
+  | 'GOOGLE_ADS'
+  | 'CLARITY';
+
+export type AnalyticsProvisioningError = {
+  provider: AnalyticsProviderName;
+  code?: string;
+  message: string;
+  occurredAt: string;
+  retryable: boolean;
+  attempt?: number;
+};
+
+export type AnalyticsTimelineEvent = {
+  provider: AnalyticsProviderName | 'TRACKING_INJECTION';
+  status: AnalyticsProviderStatus;
+  message?: string;
+  at: string;
+};
 
 export type GoogleAnalyticsState = {
   propertyId?: string;
@@ -23,6 +53,37 @@ export type SearchConsoleState = {
   verificationRecordName?: string;
   verificationRecordType?: 'TXT';
   verified: boolean;
+  status: AnalyticsProviderStatus;
+  errorMessage?: string;
+  updatedAt?: string;
+};
+
+export type GoogleAdsConversionEvent =
+  | 'LEAD'
+  | 'WHATSAPP_CLICK'
+  | 'CONTACT_FORM'
+  | 'BOOKING'
+  | 'PURCHASE';
+
+export type GoogleAdsConversionState = {
+  event: GoogleAdsConversionEvent;
+  conversionActionId?: string;
+  conversionActionResourceName?: string;
+  conversionId?: string;
+  conversionLabel?: string;
+  conversionName: string;
+  status: AnalyticsProviderStatus;
+  globalSiteTag?: string;
+  eventSnippet?: string;
+  updatedAt?: string;
+  errorMessage?: string;
+};
+
+export type GoogleAdsState = {
+  customerId?: string;
+  conversionId?: string;
+  conversions: GoogleAdsConversionState[];
+  enhancedConversionsEnabled: boolean;
   status: AnalyticsProviderStatus;
   errorMessage?: string;
   updatedAt?: string;
@@ -50,7 +111,11 @@ export type AnalyticsIntegrationRecord = {
   normalizedDomain: string;
   googleAnalytics: GoogleAnalyticsState;
   searchConsole: SearchConsoleState;
+  googleAds: GoogleAdsState;
   clarity: ClarityState;
+  provisioningStatus: AnalyticsProvisioningStatus;
+  provisioningErrors: AnalyticsProvisioningError[];
+  timeline: AnalyticsTimelineEvent[];
   trackingEnvironment: Record<string, string>;
   dashboardMetrics: AnalyticsDashboardMetricDefinition[];
   createdAt: string;
@@ -83,7 +148,11 @@ export type AnalyticsStatusResult = {
   domain?: string;
   googleAnalytics: GoogleAnalyticsState;
   searchConsole: SearchConsoleState;
+  googleAds: GoogleAdsState;
   clarity: ClarityState;
+  provisioningStatus: AnalyticsProvisioningStatus;
+  provisioningErrors: AnalyticsProvisioningError[];
+  timeline: AnalyticsTimelineEvent[];
   trackingEnvironment: Record<string, string>;
   ready: boolean;
 };
@@ -111,4 +180,10 @@ export type ClarityProvisionResult = {
   trackingCode?: string;
   skipped?: boolean;
   reason?: string;
+};
+
+export type GoogleAdsProvisionResult = {
+  customerId: string;
+  conversionId?: string;
+  conversions: GoogleAdsConversionState[];
 };

@@ -161,9 +161,13 @@ export const env = {
   )!,
   googleClientEmail: optional('GOOGLE_CLIENT_EMAIL'),
   googlePrivateKey: optional('GOOGLE_PRIVATE_KEY'),
+  googleClientId: optional('GOOGLE_CLIENT_ID'),
+  googleClientSecret: optional('GOOGLE_CLIENT_SECRET'),
+  googleRefreshToken: optional('GOOGLE_REFRESH_TOKEN'),
   googleAnalyticsAccountId: optional('GOOGLE_ANALYTICS_ACCOUNT_ID'),
   googleAnalyticsTimezone: optional('GOOGLE_ANALYTICS_TIMEZONE', 'Europe/Amsterdam')!,
   googleAnalyticsCurrency: optional('GOOGLE_ANALYTICS_CURRENCY', 'EUR')!,
+  googleMarketingStackRequired: booleanFromEnv('GOOGLE_MARKETING_STACK_REQUIRED', false),
   googleSearchConsoleDnsMaxAttempts: numberFromEnv(
     'GOOGLE_SEARCH_CONSOLE_DNS_MAX_ATTEMPTS',
     12,
@@ -172,6 +176,14 @@ export const env = {
     'GOOGLE_SEARCH_CONSOLE_DNS_DELAY_MS',
     10_000,
   ),
+  googleAdsApiBaseUrl: optional(
+    'GOOGLE_ADS_API_BASE_URL',
+    'https://googleads.googleapis.com',
+  )!,
+  googleAdsApiVersion: optional('GOOGLE_ADS_API_VERSION', 'v24')!,
+  googleAdsDeveloperToken: optional('GOOGLE_ADS_DEVELOPER_TOKEN'),
+  googleAdsCustomerId: optional('GOOGLE_ADS_CUSTOMER_ID'),
+  googleAdsLoginCustomerId: optional('GOOGLE_ADS_LOGIN_CUSTOMER_ID'),
 
   clarityApiBaseUrl: optional('CLARITY_API_BASE_URL'),
   clarityApiToken: optional('CLARITY_API_TOKEN'),

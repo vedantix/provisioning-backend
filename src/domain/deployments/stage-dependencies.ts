@@ -74,9 +74,24 @@ export type SearchConsoleStageResult = {
   reason?: string;
 };
 
+export type GoogleAdsStageResult = {
+  customerId?: string;
+  conversionId?: string;
+  conversions: Array<{
+    event: string;
+    conversionActionId?: string;
+    conversionLabel?: string;
+    conversionName?: string;
+  }>;
+};
+
 export type ClarityStageResult = {
   projectId?: string;
   skipped?: boolean;
+  trackingEnvironment: Record<string, string>;
+};
+
+export type TrackingInjectionStageResult = {
   trackingEnvironment: Record<string, string>;
 };
 
@@ -158,6 +173,14 @@ export interface StageDependencies {
     hostedZoneId: string;
   }): Promise<SearchConsoleStageResult>;
 
+  googleAds(input: {
+    tenantId: string;
+    customerId: string;
+    deploymentId: string;
+    domain: string;
+    displayName?: string;
+  }): Promise<GoogleAdsStageResult>;
+
   clarity(input: {
     tenantId: string;
     customerId: string;
@@ -165,6 +188,14 @@ export interface StageDependencies {
     domain: string;
     displayName?: string;
   }): Promise<ClarityStageResult>;
+
+  trackingInjection(input: {
+    tenantId: string;
+    customerId: string;
+    deploymentId: string;
+    domain: string;
+    displayName?: string;
+  }): Promise<TrackingInjectionStageResult>;
 
   githubDispatch(input: {
     repoName: string;

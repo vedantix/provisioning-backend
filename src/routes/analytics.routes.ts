@@ -4,11 +4,13 @@ import { requireAdminAuthMiddleware } from '../middleware/require-admin-auth.mid
 import { requireActorContextMiddleware } from '../middleware/require-actor-context.middleware';
 import { BadRequestError, NotFoundError } from '../errors/app-error';
 import { AnalyticsProvisionService } from '../services/analytics/analytics-provision.service';
+import { EnvironmentValidationService } from '../services/analytics/environment-validation.service';
 import { CustomersRepository } from '../modules/customers/repositories/customers.repository';
 import { DeploymentsRepository } from '../repositories/deployments.repository';
 
 const router = Router();
 const analyticsService = new AnalyticsProvisionService();
+const environmentValidationService = new EnvironmentValidationService();
 const customersRepository = new CustomersRepository();
 const deploymentsRepository = new DeploymentsRepository();
 
@@ -73,6 +75,19 @@ router.post(
 );
 
 router.post(
+  '/provision-marketing-stack',
+  asyncHandler(async (req, res) => {
+    const input = await resolveProvisionInput(req);
+    const result = await analyticsService.provisionAnalytics(input);
+
+    res.status(200).json({
+      data: result,
+      requestId: req.ctx.requestId,
+    });
+  }),
+);
+
+router.post(
   '/repair',
   asyncHandler(async (req, res) => {
     const input = await resolveProvisionInput(req);
@@ -80,6 +95,29 @@ router.post(
 
     res.status(200).json({
       data: result,
+      requestId: req.ctx.requestId,
+    });
+  }),
+);
+
+router.post(
+  '/retry',
+  asyncHandler(async (req, res) => {
+    const input = await resolveProvisionInput(req);
+    const result = await analyticsService.repairAnalytics(input);
+
+    res.status(200).json({
+      data: result,
+      requestId: req.ctx.requestId,
+    });
+  }),
+);
+
+router.get(
+  '/environment/status',
+  asyncHandler(async (req, res) => {
+    res.status(200).json({
+      data: environmentValidationService.validateMarketingStackEnvironment(),
       requestId: req.ctx.requestId,
     });
   }),

@@ -389,6 +389,33 @@ dist
     };
   }
 
+  async googleAds(input: {
+    tenantId: string;
+    customerId: string;
+    deploymentId: string;
+    domain: string;
+    displayName?: string;
+  }) {
+    const result = await this.analyticsProvisionService.provisionGoogleAds({
+      tenantId: input.tenantId,
+      customerId: input.customerId,
+      deploymentId: input.deploymentId,
+      domain: input.domain,
+      displayName: input.displayName,
+    });
+
+    return {
+      customerId: result.googleAds.customerId,
+      conversionId: result.googleAds.conversionId,
+      conversions: result.googleAds.conversions.map((conversion) => ({
+        event: conversion.event,
+        conversionActionId: conversion.conversionActionId,
+        conversionLabel: conversion.conversionLabel,
+        conversionName: conversion.conversionName,
+      })),
+    };
+  }
+
   async clarity(input: {
     tenantId: string;
     customerId: string;
@@ -407,6 +434,26 @@ dist
     return {
       projectId: result.clarity.projectId,
       skipped: result.clarity.status === 'SKIPPED',
+      trackingEnvironment: result.trackingEnvironment,
+    };
+  }
+
+  async trackingInjection(input: {
+    tenantId: string;
+    customerId: string;
+    deploymentId: string;
+    domain: string;
+    displayName?: string;
+  }) {
+    const result = await this.analyticsProvisionService.provisionTrackingInjection({
+      tenantId: input.tenantId,
+      customerId: input.customerId,
+      deploymentId: input.deploymentId,
+      domain: input.domain,
+      displayName: input.displayName,
+    });
+
+    return {
       trackingEnvironment: result.trackingEnvironment,
     };
   }
