@@ -18,6 +18,7 @@ import type {
   FailureCategory,
   StageExecutionState,
 } from '../domain/deployments/types';
+import { env } from '../config/env';
 
 const client = new DynamoDBClient({});
 const ddb = DynamoDBDocumentClient.from(client);
@@ -258,16 +259,37 @@ export class DeploymentsRepository {
     const existing = await this.getById(deploymentId);
     const previousRetryCount = existing?.stageStates?.[stage]?.retryCount ?? 0;
     const previousStartedAt = existing?.stageStates?.[stage]?.startedAt;
+    const retryCount = previousRetryCount + 1;
+    const retryable = params.retryable ?? false;
+    const delayMs = Math.min(
+      env.analyticsRetryBaseDelayMs * 2 ** Math.max(0, retryCount - 1),
+      env.analyticsRetryMaxDelayMs,
+    );
+    const nextRetryAt =
+      retryable && retryCount < env.maxStageRetryCount
+        ? new Date(Date.now() + delayMs).toISOString()
+        : undefined;
 
     const stageState: StageExecutionState = {
       stage,
       status: 'FAILED',
-      retryCount: previousRetryCount + 1,
+      retryCount,
       startedAt: previousStartedAt,
       completedAt: now,
       lastErrorCode: params.errorCode,
       lastErrorMessage: params.errorMessage,
-      retryable: params.retryable ?? false,
+      retryable,
+      nextRetryAt,
+      retryHistory: [
+        ...((existing?.stageStates?.[stage]?.retryHistory ?? []).slice(-9)),
+        {
+          attempt: retryCount,
+          errorCode: params.errorCode,
+          errorMessage: params.errorMessage,
+          at: now,
+          nextRetryAt,
+        },
+      ],
     };
 
     await ddb.send(

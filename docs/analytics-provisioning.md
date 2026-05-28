@@ -131,6 +131,12 @@ GOOGLE_ANALYTICS_TIMEZONE=Europe/Amsterdam
 GOOGLE_ANALYTICS_CURRENCY=EUR
 GOOGLE_SEARCH_CONSOLE_DNS_MAX_ATTEMPTS=12
 GOOGLE_SEARCH_CONSOLE_DNS_DELAY_MS=10000
+ANALYTICS_LOCK_TTL_SECONDS=900
+ANALYTICS_RETRY_MAX_ATTEMPTS=4
+ANALYTICS_RETRY_BASE_DELAY_MS=1000
+ANALYTICS_RETRY_MAX_DELAY_MS=30000
+ANALYTICS_RETRY_JITTER_MS=750
+DEAD_LETTER_TABLE=vedantix-dead-letter-jobs
 
 GOOGLE_ADS_API_BASE_URL=https://googleads.googleapis.com
 GOOGLE_ADS_API_VERSION=v24
@@ -182,9 +188,19 @@ Routes are mounted under both `/api/analytics` and `/analytics`.
 
 - `POST /api/analytics/provision`
 - `POST /api/analytics/repair`
+- `POST /api/analytics/retry`
+- `GET /api/analytics/dead-letters`
+- `POST /api/analytics/dead-letters/:deadLetterId/replay`
 - `DELETE /api/analytics`
 - `GET /api/analytics/:customerId`
 - `GET /api/analytics/:customerId/status`
+
+Health endpoints:
+
+- `GET /health/google`
+- `GET /health/deployments`
+- `GET /health/queues`
+- `GET /health/provisioning`
 
 All routes use the existing admin auth and request context:
 
@@ -203,6 +219,14 @@ All routes use the existing admin auth and request context:
 - Existing Clarity project IDs are reused; otherwise the configured provider is called.
 
 `deleteAnalytics()` soft-deletes/deprovisions provider resources where APIs are available and marks the DynamoDB record as `DELETED`. Customer deletion calls this cleanup flow so analytics resources are not orphaned. Google Ads conversion actions are marked `DELETED` in the integration record so future repair can intentionally reconcile or reconnect them.
+
+## Production Hardening
+
+Analytics provisioning uses a DynamoDB-backed distributed lock keyed by tenant and customer. Deployment execution uses the existing operation lock table, so duplicate button clicks, duplicate workers and App Runner restarts cannot run the same customer workflow in parallel. Locks expire automatically through TTL-style `expiresAt` values and are released by the active operation owner.
+
+Provider retries use exponential backoff with jitter and clear retry caps. Retry metadata is stored on the analytics integration record, including attempt count, next retry time and the last provider error. Once attempts are exhausted the backend writes a dead-letter record to DynamoDB. Operators can inspect open dead letters and replay analytics jobs through the admin API without editing records manually.
+
+Logs are structured and recursively redact token, secret, password, private key, authorization and cookie fields before writing to stdout/stderr. Audit events capture provisioning starts, successful completion, locks, conflicts, retry scheduling, failed providers and dead-letter creation.
 
 ## Future Dashboard
 

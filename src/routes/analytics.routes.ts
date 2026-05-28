@@ -9,6 +9,7 @@ import { GoogleAnalyticsController } from '../services/analytics/google-analytic
 import { CustomersRepository } from '../modules/customers/repositories/customers.repository';
 import { DeploymentsRepository } from '../repositories/deployments.repository';
 import { AnalyticsIntegrationsRepository } from '../repositories/analytics-integrations.repository';
+import { DeadLetterRepository } from '../repositories/dead-letter.repository';
 
 const router = Router();
 const analyticsService = new AnalyticsProvisionService();
@@ -17,6 +18,7 @@ const googleAnalyticsController = new GoogleAnalyticsController();
 const customersRepository = new CustomersRepository();
 const deploymentsRepository = new DeploymentsRepository();
 const analyticsIntegrationsRepository = new AnalyticsIntegrationsRepository();
+const deadLetterRepository = new DeadLetterRepository();
 
 router.use(requireAdminAuthMiddleware);
 router.use(requireActorContextMiddleware);
@@ -54,6 +56,8 @@ async function resolveProvisionInput(req: any) {
   return {
     tenantId: req.ctx.tenantId,
     actorId: req.ctx.actorId,
+    requestId: req.ctx.requestId,
+    idempotencyKey: req.ctx.idempotencyKey,
     customerId: customer.id,
     deploymentId,
     domain: readBodyString(req.body, 'domain') || customer.domain,
@@ -168,6 +172,54 @@ router.get(
 
     res.status(200).json({
       data: summary,
+      requestId: req.ctx.requestId,
+    });
+  }),
+);
+
+router.get(
+  '/dead-letters',
+  asyncHandler(async (req, res) => {
+    const deadLetters = await deadLetterRepository.listOpenByTenant(req.ctx.tenantId);
+
+    res.status(200).json({
+      data: deadLetters,
+      requestId: req.ctx.requestId,
+    });
+  }),
+);
+
+router.post(
+  '/dead-letters/:deadLetterId/replay',
+  asyncHandler(async (req, res) => {
+    const deadLetter = await deadLetterRepository.getById(String(req.params.deadLetterId));
+    if (!deadLetter || deadLetter.tenantId !== req.ctx.tenantId) {
+      throw new NotFoundError('Dead-letter record not found');
+    }
+
+    if (deadLetter.resourceType !== 'ANALYTICS' || !deadLetter.customerId) {
+      throw new BadRequestError('Only analytics dead-letter records can be replayed here');
+    }
+
+    const replayInput = await resolveProvisionInput({
+      ...req,
+      body: {
+        customerId: deadLetter.customerId,
+        deploymentId: deadLetter.deploymentId,
+        domain: String(deadLetter.payload?.domain || ''),
+        displayName: String(deadLetter.payload?.displayName || ''),
+        hostedZoneId: String(deadLetter.payload?.hostedZoneId || ''),
+      },
+    });
+    const result = await analyticsService.repairAnalytics(replayInput);
+    await deadLetterRepository.markStatus(deadLetter.deadLetterId, 'REPLAYED');
+
+    res.status(202).json({
+      data: {
+        deadLetterId: deadLetter.deadLetterId,
+        status: 'REPLAYED',
+        analytics: result,
+      },
       requestId: req.ctx.requestId,
     });
   }),

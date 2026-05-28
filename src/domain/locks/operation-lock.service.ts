@@ -1,5 +1,7 @@
 import {
   ConditionalCheckFailedException,
+  CreateTableCommand,
+  DescribeTableCommand,
   DynamoDBClient,
 } from '@aws-sdk/client-dynamodb';
 import {
@@ -33,9 +35,27 @@ const client = new DynamoDBClient({});
 const ddb = DynamoDBDocumentClient.from(client);
 const TABLE_NAME =
   process.env.OPERATION_LOCKS_TABLE || 'vedantix-operation-locks';
+let ensuredTable: Promise<void> | undefined;
+
+function isResourceNotFound(error: unknown): boolean {
+  const maybe = error as { name?: string; message?: string };
+  return (
+    maybe?.name === 'ResourceNotFoundException' ||
+    String(maybe?.message || '').includes('Requested resource not found')
+  );
+}
+
+function isResourceInUse(error: unknown): boolean {
+  return (error as { name?: string })?.name === 'ResourceInUseException';
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export class OperationLockService {
   async acquire(input: OperationLockInput): Promise<void> {
+    await this.ensureTableExists();
     const nowEpoch = Math.floor(Date.now() / 1000);
     const expiresAtEpochSeconds = nowEpoch + input.ttlSeconds;
 
@@ -75,6 +95,7 @@ export class OperationLockService {
     operationId: string,
     ttlSeconds: number,
   ): Promise<void> {
+    await this.ensureTableExists();
     const nowEpoch = Math.floor(Date.now() / 1000);
     const expiresAtEpochSeconds = nowEpoch + ttlSeconds;
 
@@ -97,6 +118,7 @@ export class OperationLockService {
   }
 
   async release(deploymentId: string, operationId?: string): Promise<void> {
+    await this.ensureTableExists();
     if (!operationId) {
       await ddb.send(
         new DeleteCommand({
@@ -143,6 +165,7 @@ export class OperationLockService {
       }
     | undefined
   > {
+    await this.ensureTableExists();
     const result = await ddb.send(
       new GetCommand({
         TableName: TABLE_NAME,
@@ -168,5 +191,61 @@ export class OperationLockService {
 
   private buildLockId(deploymentId: string): string {
     return `deployment:${deploymentId}`;
+  }
+
+  private async ensureTableExists(): Promise<void> {
+    if (!ensuredTable) {
+      ensuredTable = this.createTableIfMissing().catch((error) => {
+        ensuredTable = undefined;
+        throw error;
+      });
+    }
+
+    return ensuredTable;
+  }
+
+  private async createTableIfMissing(): Promise<void> {
+    try {
+      const result = await client.send(
+        new DescribeTableCommand({ TableName: TABLE_NAME }),
+      );
+
+      if (result.Table?.TableStatus === 'ACTIVE') {
+        return;
+      }
+    } catch (error) {
+      if (!isResourceNotFound(error)) {
+        throw error;
+      }
+
+      try {
+        await client.send(
+          new CreateTableCommand({
+            TableName: TABLE_NAME,
+            BillingMode: 'PAY_PER_REQUEST',
+            AttributeDefinitions: [{ AttributeName: 'lockId', AttributeType: 'S' }],
+            KeySchema: [{ AttributeName: 'lockId', KeyType: 'HASH' }],
+          }),
+        );
+      } catch (createError) {
+        if (!isResourceInUse(createError)) {
+          throw createError;
+        }
+      }
+    }
+
+    for (let attempt = 1; attempt <= 20; attempt += 1) {
+      const result = await client.send(
+        new DescribeTableCommand({ TableName: TABLE_NAME }),
+      );
+
+      if (result.Table?.TableStatus === 'ACTIVE') {
+        return;
+      }
+
+      await sleep(1500);
+    }
+
+    throw new Error(`DynamoDB table ${TABLE_NAME} was created but is not ACTIVE yet`);
   }
 }

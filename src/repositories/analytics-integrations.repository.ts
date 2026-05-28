@@ -129,13 +129,30 @@ export class AnalyticsIntegrationsRepository {
 
   async upsert(record: AnalyticsIntegrationRecord): Promise<void> {
     await this.ensureTableExists();
+    const nextRecord: AnalyticsIntegrationRecord = {
+      ...record,
+      version: (record.version ?? 0) + 1,
+    };
 
     await ddb.send(
       new PutCommand({
         TableName: this.tableName,
-        Item: removeUndefinedValues(record),
+        Item: removeUndefinedValues(nextRecord),
       }),
     );
+  }
+
+  async healthScan(limit = 5): Promise<number> {
+    await this.ensureTableExists();
+
+    const result = await ddb.send(
+      new ScanCommand({
+        TableName: this.tableName,
+        Limit: limit,
+      }),
+    );
+
+    return result.Count ?? 0;
   }
 
   async deleteByCustomerId(customerId: string): Promise<void> {

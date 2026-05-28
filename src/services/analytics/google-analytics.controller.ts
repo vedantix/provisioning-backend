@@ -97,6 +97,8 @@ export class GoogleAnalyticsController {
     return {
       tenantId: req.ctx.tenantId,
       actorId: req.ctx.actorId,
+      requestId: req.ctx.requestId,
+      idempotencyKey: req.ctx.idempotencyKey,
       customerId: customer.id,
       deploymentId,
       domain: readBodyString(req.body, 'domain') || customer.domain,

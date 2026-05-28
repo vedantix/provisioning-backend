@@ -76,6 +76,14 @@ export type StageExecutionState = {
   lastErrorCode?: string;
   lastErrorMessage?: string;
   retryable?: boolean;
+  nextRetryAt?: string;
+  retryHistory?: Array<{
+    attempt: number;
+    errorCode?: string;
+    errorMessage?: string;
+    at: string;
+    nextRetryAt?: string;
+  }>;
   output?: Record<string, unknown>;
 };
 

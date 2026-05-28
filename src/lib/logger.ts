@@ -28,6 +28,26 @@ function sanitizeError(error: unknown): Record<string, unknown> | undefined {
   };
 }
 
+function redact(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => redact(item));
+  }
+
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, item]) => {
+      if (/token|secret|password|private.?key|authorization|cookie/i.test(key)) {
+        return [key, '[REDACTED]'];
+      }
+
+      return [key, redact(item)];
+    }),
+  );
+}
+
 function toLogLine(level: LogLevel, message: string, meta?: LogMeta): string {
   const payload = {
     ts: new Date().toISOString(),
@@ -35,7 +55,7 @@ function toLogLine(level: LogLevel, message: string, meta?: LogMeta): string {
     msg: message,
     service: 'provisioning-backend',
     env: env.nodeEnv,
-    ...meta,
+    ...(redact(meta) as Record<string, unknown> | undefined),
   };
 
   if (env.prettyLogs) {

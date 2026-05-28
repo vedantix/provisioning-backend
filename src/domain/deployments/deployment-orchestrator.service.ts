@@ -7,6 +7,11 @@ import { OperationsRepository } from '../../repositories/operations.repository';
 import { CustomersRepository } from '../../modules/customers/repositories/customers.repository';
 import { DeploymentStateService } from './deployment-state.service';
 import { AuditService } from '../audit/audit.service';
+import {
+  OperationLockConflictError,
+  OperationLockService,
+} from '../locks/operation-lock.service';
+import { env } from '../../config/env';
 
 function removeUndefinedValues<T>(value: T): T {
   if (Array.isArray(value)) {
@@ -34,9 +39,16 @@ export class DeploymentOrchestratorService {
     private readonly auditService = new AuditService(),
     private readonly deps: StageDependencies = createStageDependencies(),
     private readonly customersRepository = new CustomersRepository(),
+    private readonly operationLockService = new OperationLockService(),
   ) {}
 
   async runCreate(deploymentId: string, operationId: string): Promise<void> {
+    return this.withDeploymentLock(deploymentId, operationId, async () =>
+      this.runCreateUnlocked(deploymentId, operationId),
+    );
+  }
+
+  private async runCreateUnlocked(deploymentId: string, operationId: string): Promise<void> {
     const existingDeployment = await this.deploymentsRepository.getById(deploymentId);
     if (!existingDeployment) {
       throw new Error('Deployment not found');
@@ -53,6 +65,11 @@ export class DeploymentOrchestratorService {
       const stage = currentStage;
 
       try {
+        await this.operationLockService.refresh(
+          deploymentId,
+          operationId,
+          env.operationLockTtlSeconds,
+        );
         await this.runStageInternal(deploymentId, stage);
         currentStage = getNextCreateStage(stage);
       } catch (error) {
@@ -84,6 +101,16 @@ export class DeploymentOrchestratorService {
     operationId: string,
     stage: AnyStage,
   ): Promise<void> {
+    return this.withDeploymentLock(deploymentId, operationId, async () =>
+      this.runSingleStageUnlocked(deploymentId, operationId, stage),
+    );
+  }
+
+  private async runSingleStageUnlocked(
+    deploymentId: string,
+    operationId: string,
+    stage: AnyStage,
+  ): Promise<void> {
     const now = new Date().toISOString();
     await this.operationsRepository.markRunning(operationId, now);
 
@@ -103,6 +130,64 @@ export class DeploymentOrchestratorService {
       );
 
       throw error;
+    }
+  }
+
+  private async withDeploymentLock<T>(
+    deploymentId: string,
+    operationId: string,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const deployment = await this.requireDeployment(deploymentId);
+
+    try {
+      await this.operationLockService.acquire({
+        deploymentId,
+        operationId,
+        ttlSeconds: env.operationLockTtlSeconds,
+        stage: deployment.currentStage,
+        owner: {
+          tenantId: deployment.tenantId,
+          actorId: deployment.triggeredBy ?? deployment.createdBy,
+        },
+      });
+    } catch (error) {
+      if (error instanceof OperationLockConflictError) {
+        await this.operationsRepository.markFailed(
+          operationId,
+          new Date().toISOString(),
+          'DEPLOYMENT_LOCK_CONFLICT',
+          'Another deployment operation is already running',
+        );
+
+        await this.auditService.write({
+          deploymentId,
+          operationId,
+          tenantId: deployment.tenantId,
+          customerId: deployment.customerId,
+          actorId: deployment.triggeredBy ?? deployment.createdBy,
+          eventType: 'LOCK_CONFLICT',
+          metadata: { resourceType: 'deployment' },
+        });
+      }
+
+      throw error;
+    }
+
+    await this.auditService.write({
+      deploymentId,
+      operationId,
+      tenantId: deployment.tenantId,
+      customerId: deployment.customerId,
+      actorId: deployment.triggeredBy ?? deployment.createdBy,
+      eventType: 'LOCK_ACQUIRED',
+      metadata: { resourceType: 'deployment' },
+    });
+
+    try {
+      return await fn();
+    } finally {
+      await this.operationLockService.release(deploymentId, operationId);
     }
   }
 

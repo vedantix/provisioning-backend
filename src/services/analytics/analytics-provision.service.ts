@@ -1,7 +1,13 @@
 import { AnalyticsIntegrationsRepository } from '../../repositories/analytics-integrations.repository';
+import { DeadLetterRepository } from '../../repositories/dead-letter.repository';
 import { AuditService } from '../../domain/audit/audit.service';
 import { logger } from '../../lib/logger';
 import { AppError, NotFoundError } from '../../errors/app-error';
+import { env } from '../../config/env';
+import {
+  DistributedLockConflictError,
+  DistributedLockService,
+} from '../../domain/locks/distributed-lock.service';
 import { GoogleAnalyticsService } from './google-analytics.service';
 import { SearchConsoleService } from './search-console.service';
 import { GoogleAdsService } from './google-ads.service';
@@ -14,6 +20,7 @@ import type {
   AnalyticsProvisionInput,
   AnalyticsProvisioningError,
   AnalyticsProviderStatus,
+  AnalyticsRetryMetadata,
   AnalyticsRepairInput,
   AnalyticsStatusResult,
   ClarityProvisionResult,
@@ -55,6 +62,26 @@ type AnalyticsProvider = 'GOOGLE_ANALYTICS' | 'SEARCH_CONSOLE' | 'GOOGLE_ADS' | 
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function createOperationId(prefix: string, input: AnalyticsProvisionInput): string {
+  return [
+    prefix,
+    input.customerId,
+    input.deploymentId,
+    input.idempotencyKey,
+    input.requestId,
+  ]
+    .filter(Boolean)
+    .join(':');
+}
+
+function addMs(ms: number): string {
+  return new Date(Date.now() + ms).toISOString();
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function normalizeDomain(domain: string): string {
@@ -123,6 +150,39 @@ function buildTrackingEnvironment(input: {
   return envVars;
 }
 
+function isRetryableError(error: unknown): boolean {
+  if (error instanceof AppError) {
+    if (
+      error.code === 'GOOGLE_OAUTH_RECONNECT_REQUIRED' ||
+      error.code.endsWith('_CONFIG') ||
+      error.code.includes('CONFIG')
+    ) {
+      return false;
+    }
+
+    return (
+      error.statusCode === 408 ||
+      error.statusCode === 409 ||
+      error.statusCode === 425 ||
+      error.statusCode === 429 ||
+      error.statusCode >= 500 ||
+      error.code.endsWith('_TIMEOUT')
+    );
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  return /timeout|timed out|rate limit|temporar|ECONNRESET|ETIMEDOUT|ENOTFOUND/i.test(message);
+}
+
+function retryDelayMs(attempt: number): number {
+  const exponential = env.analyticsRetryBaseDelayMs * 2 ** Math.max(0, attempt - 1);
+  const capped = Math.min(exponential, env.analyticsRetryMaxDelayMs);
+  const jitter = env.analyticsRetryJitterMs > 0
+    ? Math.floor(Math.random() * env.analyticsRetryJitterMs)
+    : 0;
+  return capped + jitter;
+}
+
 function toStatusResult(
   record: AnalyticsIntegrationRecord | null,
   customerId: string,
@@ -137,6 +197,7 @@ function toStatusResult(
     clarity: record?.clarity ?? initialClarity(),
     provisioningStatus: record?.provisioningStatus ?? 'NOT_STARTED',
     provisioningErrors: record?.provisioningErrors ?? [],
+    retryMetadata: record?.retryMetadata ?? {},
     timeline: record?.timeline ?? [],
     trackingEnvironment: record?.trackingEnvironment ?? {},
     ready: Boolean(
@@ -158,12 +219,26 @@ export class AnalyticsProvisionService {
     private readonly auditService = new AuditService(),
     private readonly googleAdsService = new GoogleAdsService(),
     private readonly environmentValidationService = new EnvironmentValidationService(),
+    private readonly lockService = new DistributedLockService(),
+    private readonly deadLetterRepository = new DeadLetterRepository(),
   ) {}
 
   async provisionAnalytics(
     input: AnalyticsProvisionInput,
   ): Promise<AnalyticsIntegrationRecord> {
+    if (!input.skipAnalyticsLock) {
+      return this.withAnalyticsLock(input, 'analytics-provision', (lockedInput) =>
+        this.provisionAnalytics({ ...lockedInput, skipAnalyticsLock: true }),
+      );
+    }
+
     this.environmentValidationService.assertMarketingStackConfigured();
+    await this.writeAudit(input, 'ANALYTICS_PROVISION_REQUESTED', {
+      deploymentId: input.deploymentId,
+      domain: normalizeDomain(input.domain),
+      correlationId: input.requestId,
+    });
+
     const afterGoogle = await this.provisionGoogleAnalytics(input);
     const afterSearch = await this.provisionSearchConsole(input);
     const afterGoogleAds = await this.provisionGoogleAds(input);
@@ -195,12 +270,23 @@ export class AnalyticsProvisionService {
     };
 
     await this.repository.upsert(completed);
+    await this.writeAudit(input, 'ANALYTICS_PROVISION_SUCCEEDED', {
+      deploymentId: input.deploymentId,
+      domain: normalizeDomain(input.domain),
+      providers: ['GOOGLE_ANALYTICS', 'SEARCH_CONSOLE', 'GOOGLE_ADS', 'CLARITY'],
+    });
     return completed;
   }
 
   async provisionGoogleAnalytics(
     input: AnalyticsProvisionInput,
   ): Promise<AnalyticsIntegrationRecord> {
+    if (!input.skipAnalyticsLock) {
+      return this.withAnalyticsLock(input, 'google-analytics', (lockedInput) =>
+        this.provisionGoogleAnalytics({ ...lockedInput, skipAnalyticsLock: true }),
+      );
+    }
+
     this.environmentValidationService.assertMarketingStackConfigured();
     const record = await this.ensureRecord(input);
     const existingMeasurementId = record.googleAnalytics.measurementId;
@@ -239,6 +325,12 @@ export class AnalyticsProvisionService {
   async provisionSearchConsole(
     input: AnalyticsProvisionInput,
   ): Promise<AnalyticsIntegrationRecord> {
+    if (!input.skipAnalyticsLock) {
+      return this.withAnalyticsLock(input, 'search-console', (lockedInput) =>
+        this.provisionSearchConsole({ ...lockedInput, skipAnalyticsLock: true }),
+      );
+    }
+
     this.environmentValidationService.assertMarketingStackConfigured();
     if (!input.hostedZoneId) {
       throw new AppError(
@@ -284,6 +376,12 @@ export class AnalyticsProvisionService {
   async provisionGoogleAds(
     input: AnalyticsProvisionInput,
   ): Promise<AnalyticsIntegrationRecord> {
+    if (!input.skipAnalyticsLock) {
+      return this.withAnalyticsLock(input, 'google-ads', (lockedInput) =>
+        this.provisionGoogleAds({ ...lockedInput, skipAnalyticsLock: true }),
+      );
+    }
+
     this.environmentValidationService.assertMarketingStackConfigured();
     const record = await this.ensureRecord(input);
 
@@ -321,6 +419,12 @@ export class AnalyticsProvisionService {
   async provisionClarity(
     input: AnalyticsProvisionInput,
   ): Promise<AnalyticsIntegrationRecord> {
+    if (!input.skipAnalyticsLock) {
+      return this.withAnalyticsLock(input, 'clarity', (lockedInput) =>
+        this.provisionClarity({ ...lockedInput, skipAnalyticsLock: true }),
+      );
+    }
+
     const record = await this.ensureRecord(input);
 
     if (
@@ -369,6 +473,12 @@ export class AnalyticsProvisionService {
   async provisionTrackingInjection(
     input: AnalyticsProvisionInput,
   ): Promise<AnalyticsIntegrationRecord> {
+    if (!input.skipAnalyticsLock) {
+      return this.withAnalyticsLock(input, 'tracking-injection', (lockedInput) =>
+        this.provisionTrackingInjection({ ...lockedInput, skipAnalyticsLock: true }),
+      );
+    }
+
     const record = await this.ensureRecord(input);
     const trackingEnvironment = buildTrackingEnvironment({
       measurementId: record.googleAnalytics.measurementId,
@@ -420,6 +530,22 @@ export class AnalyticsProvisionService {
   }
 
   async deleteAnalytics(input: AnalyticsDeleteInput): Promise<AnalyticsIntegrationRecord | null> {
+    const lockInput: AnalyticsProvisionInput = {
+      tenantId: input.tenantId,
+      customerId: input.customerId,
+      deploymentId: input.deploymentId || `analytics-${input.customerId}`,
+      domain: input.customerId,
+      actorId: input.actorId,
+    };
+
+    return this.withAnalyticsLock(lockInput, 'analytics-delete', async () =>
+      this.deleteAnalyticsUnlocked(input),
+    );
+  }
+
+  private async deleteAnalyticsUnlocked(
+    input: AnalyticsDeleteInput,
+  ): Promise<AnalyticsIntegrationRecord | null> {
     const record = await this.repository.getByCustomerId(input.customerId);
 
     if (!record) {
@@ -524,6 +650,81 @@ export class AnalyticsProvisionService {
     return toStatusResult(record, customerId);
   }
 
+  private async withAnalyticsLock<T>(
+    input: AnalyticsProvisionInput,
+    operation: string,
+    fn: (lockedInput: AnalyticsProvisionInput) => Promise<T>,
+  ): Promise<T> {
+    const operationId = createOperationId(operation, input);
+    const resourceId = `${input.tenantId}:${input.customerId}`;
+
+    try {
+      await this.lockService.acquire({
+        resourceType: 'analytics',
+        resourceId,
+        ttlSeconds: env.analyticsLockTtlSeconds,
+        owner: {
+          tenantId: input.tenantId,
+          actorId: input.actorId,
+          requestId: input.requestId,
+          operationId,
+        },
+      });
+    } catch (error) {
+      if (error instanceof DistributedLockConflictError) {
+        await this.writeAudit(input, 'LOCK_CONFLICT', {
+          operation,
+          resourceType: 'analytics',
+          resourceId,
+          activeOperationId: error.lock?.operationId,
+          expiresAt: error.lock?.expiresAt,
+        });
+        throw new AppError(
+          'Analytics provisioning is already running for this customer',
+          409,
+          'ANALYTICS_LOCK_CONFLICT',
+          {
+            activeOperationId: error.lock?.operationId,
+            lockExpiresAt: error.lock?.expiresAt,
+          },
+        );
+      }
+
+      throw error;
+    }
+
+    await this.writeAudit(input, 'LOCK_ACQUIRED', {
+      operation,
+      resourceType: 'analytics',
+      resourceId,
+      operationId,
+    });
+
+    const existing = await this.repository.getByCustomerId(input.customerId);
+    if (existing && existing.tenantId === input.tenantId) {
+      await this.repository.upsert({
+        ...existing,
+        activeOperationId: operationId,
+        activeCorrelationId: input.requestId,
+        updatedAt: nowIso(),
+      });
+    }
+
+    try {
+      return await fn({
+        ...input,
+        requestId: input.requestId || operationId,
+        idempotencyKey: input.idempotencyKey || operationId,
+      });
+    } finally {
+      await this.lockService.release({
+        resourceType: 'analytics',
+        resourceId,
+        operationId,
+      });
+    }
+  }
+
   private async ensureRecord(
     input: AnalyticsProvisionInput,
   ): Promise<AnalyticsIntegrationRecord> {
@@ -543,6 +744,7 @@ export class AnalyticsProvisionService {
         googleAds: existing.googleAds ?? initialGoogleAds(),
         provisioningStatus: existing.provisioningStatus ?? 'PENDING',
         provisioningErrors: existing.provisioningErrors ?? [],
+        retryMetadata: existing.retryMetadata ?? {},
         timeline: existing.timeline ?? [],
         updatedAt: now,
       };
@@ -560,6 +762,7 @@ export class AnalyticsProvisionService {
       clarity: initialClarity(),
       provisioningStatus: 'NOT_STARTED',
       provisioningErrors: [],
+      retryMetadata: {},
       timeline: [],
       trackingEnvironment: {},
       dashboardMetrics: DASHBOARD_METRICS,
@@ -726,7 +929,8 @@ export class AnalyticsProvisionService {
       code: appError?.code,
       message: errorMessage,
       occurredAt: now,
-      retryable: true,
+      retryable: isRetryableError(error),
+      correlationId: record.activeCorrelationId,
     };
 
     if (provider === 'GOOGLE_ANALYTICS') {
@@ -941,18 +1145,31 @@ export class AnalyticsProvisionService {
     fn: () => Promise<T>,
     provider: string,
     input: AnalyticsProvisionInput,
-    maxAttempts = 3,
+    maxAttempts = env.analyticsRetryMaxAttempts,
   ): Promise<T> {
     let lastError: unknown;
+    let attemptsUsed = 0;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
+        await this.persistRetryMetadata(input, provider as AnalyticsProvider, {
+          provider: provider as AnalyticsProvider,
+          attempt,
+          maxAttempts,
+          updatedAt: nowIso(),
+        });
         return await fn();
       } catch (error) {
         lastError = error;
+        attemptsUsed = attempt;
         if (this.isSkippableProviderConfigError(provider, error)) {
           throw error;
         }
+
+        const retryable = isRetryableError(error);
+        const appError = error instanceof AppError ? error : null;
+        const delayMs = retryDelayMs(attempt);
+        const nextRetryAt = attempt < maxAttempts && retryable ? addMs(delayMs) : undefined;
 
         logger.exception('Analytics provider attempt failed', error, {
           customerId: input.customerId,
@@ -961,15 +1178,104 @@ export class AnalyticsProvisionService {
           provider,
           attempt,
           maxAttempts,
+          retryable,
+          nextRetryAt,
+          correlationId: input.requestId,
         });
 
-        if (attempt < maxAttempts) {
-          await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+        await this.persistRetryMetadata(input, provider as AnalyticsProvider, {
+          provider: provider as AnalyticsProvider,
+          attempt,
+          maxAttempts,
+          nextRetryAt,
+          lastErrorCode: appError?.code,
+          lastErrorMessage: error instanceof Error ? error.message : String(error),
+          updatedAt: nowIso(),
+        });
+
+        if (nextRetryAt) {
+          await this.writeAudit(input, 'ANALYTICS_PROVIDER_RETRY_SCHEDULED', {
+            provider,
+            attempt,
+            maxAttempts,
+            nextRetryAt,
+            errorCode: appError?.code,
+          });
+          await sleep(delayMs);
+          continue;
         }
+
+        break;
       }
     }
 
+    await this.recordDeadLetter(input, provider, lastError, attemptsUsed || maxAttempts);
     throw lastError;
+  }
+
+  private async persistRetryMetadata(
+    input: AnalyticsProvisionInput,
+    provider: AnalyticsProvider,
+    metadata: AnalyticsRetryMetadata,
+  ): Promise<void> {
+    const record = await this.repository.getByCustomerId(input.customerId);
+    if (!record || record.tenantId !== input.tenantId) {
+      return;
+    }
+
+    await this.repository.upsert({
+      ...record,
+      retryMetadata: {
+        ...(record.retryMetadata ?? {}),
+        [provider]: metadata,
+      },
+      updatedAt: nowIso(),
+    });
+  }
+
+  private async recordDeadLetter(
+    input: AnalyticsProvisionInput,
+    provider: string,
+    error: unknown,
+    attempts: number,
+  ): Promise<void> {
+    const appError = error instanceof AppError ? error : null;
+    const message = error instanceof Error ? error.message : String(error);
+
+    await this.deadLetterRepository
+      .create({
+        tenantId: input.tenantId,
+        resourceType: 'ANALYTICS',
+        resourceId: input.customerId,
+        customerId: input.customerId,
+        deploymentId: input.deploymentId,
+        provider,
+        errorCode: appError?.code,
+        errorMessage: message,
+        attempts,
+        payload: {
+          domain: normalizeDomain(input.domain),
+          displayName: input.displayName,
+          hostedZoneId: input.hostedZoneId,
+          correlationId: input.requestId,
+        },
+      })
+      .then((record) =>
+        this.writeAudit(input, 'ANALYTICS_DEAD_LETTERED', {
+          provider,
+          attempts,
+          deadLetterId: record.deadLetterId,
+          errorCode: appError?.code,
+        }),
+      )
+      .catch((deadLetterError) => {
+        logger.exception('Failed to write analytics dead-letter record', deadLetterError, {
+          provider,
+          customerId: input.customerId,
+          deploymentId: input.deploymentId,
+          originalError: message,
+        });
+      });
   }
 
   private async writeAudit(

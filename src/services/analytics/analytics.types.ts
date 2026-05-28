@@ -27,6 +27,8 @@ export type AnalyticsProvisioningError = {
   occurredAt: string;
   retryable: boolean;
   attempt?: number;
+  nextRetryAt?: string;
+  correlationId?: string;
 };
 
 export type AnalyticsTimelineEvent = {
@@ -34,6 +36,18 @@ export type AnalyticsTimelineEvent = {
   status: AnalyticsProviderStatus;
   message?: string;
   at: string;
+  attempt?: number;
+  correlationId?: string;
+};
+
+export type AnalyticsRetryMetadata = {
+  provider: AnalyticsProviderName;
+  attempt: number;
+  maxAttempts: number;
+  nextRetryAt?: string;
+  lastErrorCode?: string;
+  lastErrorMessage?: string;
+  updatedAt: string;
 };
 
 export type GoogleAnalyticsState = {
@@ -116,12 +130,16 @@ export type AnalyticsIntegrationRecord = {
   clarity: ClarityState;
   provisioningStatus: AnalyticsProvisioningStatus;
   provisioningErrors: AnalyticsProvisioningError[];
+  retryMetadata?: Record<string, AnalyticsRetryMetadata>;
   timeline: AnalyticsTimelineEvent[];
   trackingEnvironment: Record<string, string>;
   dashboardMetrics: AnalyticsDashboardMetricDefinition[];
+  activeOperationId?: string;
+  activeCorrelationId?: string;
   createdAt: string;
   updatedAt: string;
   deletedAt?: string;
+  version?: number;
 };
 
 export type AnalyticsProvisionInput = {
@@ -132,6 +150,9 @@ export type AnalyticsProvisionInput = {
   displayName?: string;
   hostedZoneId?: string;
   actorId?: string;
+  requestId?: string;
+  idempotencyKey?: string;
+  skipAnalyticsLock?: boolean;
 };
 
 export type AnalyticsDeleteInput = {
@@ -153,6 +174,7 @@ export type AnalyticsStatusResult = {
   clarity: ClarityState;
   provisioningStatus: AnalyticsProvisioningStatus;
   provisioningErrors: AnalyticsProvisioningError[];
+  retryMetadata?: Record<string, AnalyticsRetryMetadata>;
   timeline: AnalyticsTimelineEvent[];
   trackingEnvironment: Record<string, string>;
   ready: boolean;

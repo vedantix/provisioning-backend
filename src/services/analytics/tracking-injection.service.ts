@@ -81,6 +81,48 @@ export class TrackingInjectionService {
     return `${block}${withoutExistingBlock}`;
   }
 
+  validateHtml(html: string, environment: Record<string, string>): {
+    ok: boolean;
+    missing: string[];
+  } {
+    const missing: string[] = [];
+    const ga = environment.VITE_GA_MEASUREMENT_ID || environment.NEXT_PUBLIC_GA_MEASUREMENT_ID;
+    const googleAdsConversionId =
+      environment.VITE_GOOGLE_ADS_CONVERSION_ID ||
+      environment.NEXT_PUBLIC_GOOGLE_ADS_CONVERSION_ID;
+    const googleSiteVerification = normalizeGoogleSiteVerification(
+      environment.VITE_GOOGLE_SITE_VERIFICATION ||
+        environment.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION,
+    );
+    const clarity = environment.VITE_CLARITY_PROJECT_ID || environment.NEXT_PUBLIC_CLARITY_PROJECT_ID;
+
+    if (ga && !html.includes(ga)) {
+      missing.push('GOOGLE_ANALYTICS');
+    }
+
+    if (googleAdsConversionId) {
+      const conversionId = googleAdsConversionId.startsWith('AW-')
+        ? googleAdsConversionId
+        : `AW-${googleAdsConversionId}`;
+      if (!html.includes(conversionId)) {
+        missing.push('GOOGLE_ADS');
+      }
+    }
+
+    if (googleSiteVerification && !html.includes(googleSiteVerification)) {
+      missing.push('SEARCH_CONSOLE_VERIFICATION');
+    }
+
+    if (clarity && !html.includes(clarity)) {
+      missing.push('CLARITY');
+    }
+
+    return {
+      ok: missing.length === 0,
+      missing,
+    };
+  }
+
   private escapeAttribute(value: string): string {
     return String(value)
       .replace(/&/g, '&amp;')

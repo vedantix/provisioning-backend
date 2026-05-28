@@ -21,5 +21,18 @@ describe('TrackingInjectionService', () => {
     expect(injected).toContain('AW-1234567890');
     expect(injected).toContain('clarity.ms/tag');
     expect(reinjected.match(/Vedantix analytics/g)).toHaveLength(2);
+    expect(service.validateHtml(reinjected, env)).toEqual({
+      ok: true,
+      missing: [],
+    });
+    expect(service.validateHtml('<html></html>', env)).toMatchObject({
+      ok: false,
+      missing: [
+        'GOOGLE_ANALYTICS',
+        'GOOGLE_ADS',
+        'SEARCH_CONSOLE_VERIFICATION',
+        'CLARITY',
+      ],
+    });
   });
 });

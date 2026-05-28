@@ -2,6 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let AnalyticsProvisionService: typeof import('../../../src/services/analytics/analytics-provision.service').AnalyticsProvisionService;
 let AppError: typeof import('../../../src/errors/app-error').AppError;
+let DistributedLockConflictError: typeof import('../../../src/domain/locks/distributed-lock.service').DistributedLockConflictError;
 
 function stubRequiredEnv() {
   vi.stubEnv('AWS_REGION', 'eu-west-1');
@@ -61,6 +62,21 @@ function buildService(overrides: Record<string, unknown> = {}) {
   const audit = {
     write: vi.fn(async () => undefined),
   };
+  const environmentValidation = {
+    assertMarketingStackConfigured: vi.fn(() => undefined),
+    validateMarketingStackEnvironment: vi.fn(() => ({ ok: true, missing: [], warnings: [] })),
+  };
+  const lock = {
+    acquire: vi.fn(async () => undefined),
+    release: vi.fn(async () => undefined),
+    refresh: vi.fn(async () => undefined),
+  };
+  const deadLetter = {
+    create: vi.fn(async () => ({
+      deadLetterId: 'dlq_1',
+      status: 'OPEN',
+    })),
+  };
   const googleAds = {
     reconcileConversions: vi.fn(async () => ({
       customerId: '1234567890',
@@ -92,6 +108,7 @@ function buildService(overrides: Record<string, unknown> = {}) {
     searchConsole,
     googleAds,
     clarity,
+    deadLetter,
     service: new AnalyticsProvisionService(
       (overrides.repository || repository) as any,
       (overrides.googleAnalytics || googleAnalytics) as any,
@@ -99,6 +116,9 @@ function buildService(overrides: Record<string, unknown> = {}) {
       (overrides.clarity || clarity) as any,
       audit as any,
       (overrides.googleAds || googleAds) as any,
+      environmentValidation as any,
+      (overrides.lock || lock) as any,
+      (overrides.deadLetter || deadLetter) as any,
     ),
   };
 }
@@ -109,6 +129,9 @@ beforeAll(async () => {
     '../../../src/services/analytics/analytics-provision.service'
   ));
   ({ AppError } = await import('../../../src/errors/app-error'));
+  ({ DistributedLockConflictError } = await import(
+    '../../../src/domain/locks/distributed-lock.service'
+  ));
 });
 
 beforeEach(() => {
@@ -218,7 +241,7 @@ describe('AnalyticsProvisionService', () => {
       }),
       deleteProperty: vi.fn(),
     };
-    const { service } = buildService({ googleAnalytics, searchConsole });
+    const { service, deadLetter } = buildService({ googleAnalytics, searchConsole });
 
     await expect(
       service.provisionAnalytics({
@@ -229,6 +252,15 @@ describe('AnalyticsProvisionService', () => {
         hostedZoneId: 'Z123',
       }),
     ).rejects.toThrow('GOOGLE_ANALYTICS_ACCOUNT_ID is not configured');
+    expect(deadLetter.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resourceType: 'ANALYTICS',
+        resourceId: 'cust_optional_google',
+        provider: 'GOOGLE_ANALYTICS',
+        attempts: 1,
+        errorCode: 'GOOGLE_ANALYTICS_CONFIG',
+      }),
+    );
   });
 
   it('marks provider records as deleted during cleanup', async () => {
@@ -253,5 +285,36 @@ describe('AnalyticsProvisionService', () => {
     expect(googleAnalytics.deleteProperty).toHaveBeenCalledWith('123456');
     expect(searchConsole.deleteProperty).toHaveBeenCalledWith('sc-domain:jitan-sports.nl');
     expect(clarity.deleteProject).toHaveBeenCalledWith('clarity123');
+  });
+
+  it('rejects concurrent analytics provisioning with a lock conflict', async () => {
+    const lock = {
+      acquire: vi.fn(async () => {
+        throw new DistributedLockConflictError('locked', {
+          lockId: 'analytics:default:cust_locked',
+          resourceType: 'analytics',
+          resourceId: 'default:cust_locked',
+          tenantId: 'default',
+          operationId: 'other-operation',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          expiresAt: Math.floor(Date.now() / 1000) + 60,
+        });
+      }),
+      release: vi.fn(async () => undefined),
+    };
+    const { service, googleAnalytics } = buildService({ lock });
+
+    await expect(
+      service.provisionAnalytics({
+        tenantId: 'default',
+        customerId: 'cust_locked',
+        deploymentId: 'dep_locked',
+        domain: 'locked.nl',
+        hostedZoneId: 'Z123',
+      }),
+    ).rejects.toThrow('Analytics provisioning is already running');
+
+    expect(googleAnalytics.reconcileProperty).not.toHaveBeenCalled();
   });
 });

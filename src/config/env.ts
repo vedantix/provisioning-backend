@@ -73,6 +73,7 @@ export const env = {
     'ANALYTICS_INTEGRATIONS_TABLE',
     'analytics_integrations',
   )!,
+  deadLetterTable: optional('DEAD_LETTER_TABLE', 'vedantix-dead-letter-jobs')!,
 
   allowedRootDomain: optional('ALLOWED_ROOT_DOMAIN', 'vedantix.nl')!,
   corsAllowedOrigins: csvFromEnv('CORS_ALLOWED_ORIGINS', [
@@ -92,6 +93,11 @@ export const env = {
   maxStageRetryCount: numberFromEnv('MAX_STAGE_RETRY_COUNT', 3),
   operationLockTtlSeconds: numberFromEnv('OPERATION_LOCK_TTL_SECONDS', 1800),
   idempotencyTtlSeconds: numberFromEnv('IDEMPOTENCY_TTL_SECONDS', 86400),
+  analyticsLockTtlSeconds: numberFromEnv('ANALYTICS_LOCK_TTL_SECONDS', 900),
+  analyticsRetryMaxAttempts: numberFromEnv('ANALYTICS_RETRY_MAX_ATTEMPTS', 4),
+  analyticsRetryBaseDelayMs: numberFromEnv('ANALYTICS_RETRY_BASE_DELAY_MS', 1000),
+  analyticsRetryMaxDelayMs: numberFromEnv('ANALYTICS_RETRY_MAX_DELAY_MS', 30000),
+  analyticsRetryJitterMs: numberFromEnv('ANALYTICS_RETRY_JITTER_MS', 750),
 
   requestBodyLimit: optional('REQUEST_BODY_LIMIT', '1mb')!,
   rateLimitWindowMs: numberFromEnv('RATE_LIMIT_WINDOW_MS', 60_000),

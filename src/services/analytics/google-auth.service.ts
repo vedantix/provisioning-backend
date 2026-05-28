@@ -11,6 +11,14 @@ type TokenCacheEntry = {
   expiresAt: number;
 };
 
+export type GoogleTokenHealth = {
+  ok: boolean;
+  mode: 'oauth_refresh_token' | 'service_account';
+  errorCode?: string;
+  errorMessage?: string;
+  reconnectRequired?: boolean;
+};
+
 function base64Url(input: string | Buffer): string {
   return Buffer.from(input)
     .toString('base64')
@@ -113,6 +121,30 @@ export class GoogleServiceAccountAuth {
     return payload.access_token;
   }
 
+  clearTokenCache(): void {
+    this.tokenCache.clear();
+    this.oauthTokenRepository.clearCache();
+  }
+
+  async validateToken(scopes: string[]): Promise<GoogleTokenHealth> {
+    const oauthCredentials = await this.oauthTokenRepository.getOAuthCredentials();
+    const mode = oauthCredentials ? 'oauth_refresh_token' : 'service_account';
+
+    try {
+      await this.getAccessToken(scopes);
+      return { ok: true, mode };
+    } catch (error) {
+      const appError = error instanceof AppError ? error : null;
+      return {
+        ok: false,
+        mode,
+        errorCode: appError?.code,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        reconnectRequired: appError?.code === 'GOOGLE_OAUTH_RECONNECT_REQUIRED',
+      };
+    }
+  }
+
   private buildJwtAssertion(
     credentials: { clientEmail: string; privateKey: string },
     scope: string,
@@ -164,13 +196,19 @@ export class GoogleServiceAccountAuth {
     };
 
     if (!response.ok || !payload.access_token) {
+      const reconnectRequired = ['invalid_grant', 'invalid_client', 'unauthorized_client'].includes(
+        String(payload.error || ''),
+      );
       throw new AppError(
         payload.error_description || payload.error || 'Google OAuth refresh failed',
         response.status || 500,
-        'GOOGLE_OAUTH_REFRESH_FAILED',
+        reconnectRequired
+          ? 'GOOGLE_OAUTH_RECONNECT_REQUIRED'
+          : 'GOOGLE_OAUTH_REFRESH_FAILED',
         {
           status: response.status,
           error: payload.error,
+          reconnectRequired,
         },
       );
     }
