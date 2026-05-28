@@ -154,6 +154,39 @@ jobs:
             set -e
 
             if [ "${EXIT_CODE}" -ne 0 ]; then
+              if echo "${STATUS}" | grep -q "AccessDeniedException"; then
+                echo "::warning::GitHub Actions role cannot call apprunner:ListOperations. Falling back to service status."
+
+                set +e
+                SERVICE_STATUS=$(aws apprunner describe-service \
+                  --service-arn "${{ steps.apprunner.outputs.service_arn }}" \
+                  --region "${AWS_REGION}" \
+                  --query "Service.Status" \
+                  --output text 2>&1)
+                SERVICE_EXIT_CODE=$?
+                set -e
+
+                if [ "${SERVICE_EXIT_CODE}" -ne 0 ]; then
+                  echo "::warning::Could not read App Runner service status: ${SERVICE_STATUS}"
+                  echo "::warning::Deployment was started, but this workflow cannot wait without apprunner:ListOperations or apprunner:DescribeService."
+                  exit 0
+                fi
+
+                echo "App Runner service status: ${SERVICE_STATUS}"
+
+                case "${SERVICE_STATUS}" in
+                  RUNNING)
+                    exit 0
+                    ;;
+                  CREATE_FAILED|DELETE_FAILED)
+                    exit 1
+                    ;;
+                esac
+
+                sleep 10
+                continue
+              fi
+
               echo "Could not read App Runner deployment status yet: ${STATUS}"
               sleep 10
               continue
