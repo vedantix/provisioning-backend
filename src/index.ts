@@ -118,6 +118,7 @@ app.use("/api/analytics", analyticsRoutes);
 app.use("/analytics", analyticsRoutes);
 
 app.use("/api", customersRoutes);
+app.use("/api/customers", customerMailRoutes);
 app.use("/api/finance", financeRoutes);
 
 app.use("/api", deploymentsRoutes);
@@ -139,7 +140,6 @@ app.use("/api", rollbackRoutes);
 app.use('/api', customerBase44Routes);
 
 app.use("/api/mail", mailRoutes);
-app.use("/api/customers", customerMailRoutes);
 
 app.use('/internal', base44Webhook);
 
