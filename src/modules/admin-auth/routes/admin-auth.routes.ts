@@ -50,20 +50,19 @@ router.post('/admin/auth/login', async (req: Request, res: Response) => {
   });
 });
 
-router.get(
-  '/admin/auth/verify',
-  requireAdminAuthMiddleware,
-  async (req: Request, res: Response) => {
-    res.status(200).json({
-      data: {
-        ok: true,
-        tenantId: req.ctx.tenantId,
-        actorId: req.ctx.actorId,
-        source: req.ctx.source,
-      },
-      requestId: req.ctx?.requestId,
-    });
-  },
-);
+function verifyAdminSession(req: Request, res: Response): void {
+  res.status(200).json({
+    data: {
+      ok: true,
+      tenantId: req.ctx.tenantId,
+      actorId: req.ctx.actorId,
+      source: req.ctx.source,
+    },
+    requestId: req.ctx?.requestId,
+  });
+}
+
+router.get('/admin/auth/verify', requireAdminAuthMiddleware, verifyAdminSession);
+router.post('/admin/auth/verify', requireAdminAuthMiddleware, verifyAdminSession);
 
 export default router;
