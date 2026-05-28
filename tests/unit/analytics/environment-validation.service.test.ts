@@ -33,7 +33,16 @@ describe('EnvironmentValidationService', () => {
     stubRequiredRuntimeEnv();
   });
 
-  it('fails startup when required Google OAuth settings are missing', async () => {
+  it('keeps the API online when marketing settings are missing by default', async () => {
+    vi.stubEnv('GOOGLE_ADS_DEVELOPER_TOKEN', 'dev-token');
+    vi.stubEnv('GOOGLE_ADS_CUSTOMER_ID', '1234567890');
+    const { EnvironmentValidationService } = await loadService();
+
+    expect(() => new EnvironmentValidationService().validateStartup()).not.toThrow();
+  });
+
+  it('fails startup when strict marketing validation is enabled', async () => {
+    vi.stubEnv('MARKETING_STACK_STRICT_STARTUP', 'true');
     vi.stubEnv('GOOGLE_ADS_DEVELOPER_TOKEN', 'dev-token');
     vi.stubEnv('GOOGLE_ADS_CUSTOMER_ID', '1234567890');
     const { EnvironmentValidationService } = await loadService();

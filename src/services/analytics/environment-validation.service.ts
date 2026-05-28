@@ -97,15 +97,19 @@ export class EnvironmentValidationService {
       provider: 'MARKETING_STACK',
       missing: validation.missing,
       warnings: validation.warnings,
-      strict: true,
+      strict: env.marketingStackStrictStartup,
     };
 
-    logger.error('Marketing stack environment validation failed', metadata);
-    throw new AppError(
-      `Marketing stack environment is incomplete: ${validation.missing.join(', ')}`,
-      500,
-      'MARKETING_ENV_MISSING',
-      metadata,
-    );
+    if (env.marketingStackStrictStartup) {
+      logger.error('Marketing stack environment validation failed', metadata);
+      throw new AppError(
+        `Marketing stack environment is incomplete: ${validation.missing.join(', ')}`,
+        500,
+        'MARKETING_ENV_MISSING',
+        metadata,
+      );
+    }
+
+    logger.warn('Marketing stack environment validation failed', metadata);
   }
 }

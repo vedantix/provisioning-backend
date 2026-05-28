@@ -174,6 +174,7 @@ export const env = {
   googleAnalyticsAccountId: optional('GOOGLE_ANALYTICS_ACCOUNT_ID'),
   googleAnalyticsTimezone: optional('GOOGLE_ANALYTICS_TIMEZONE', 'Europe/Amsterdam')!,
   googleAnalyticsCurrency: optional('GOOGLE_ANALYTICS_CURRENCY', 'EUR')!,
+  marketingStackStrictStartup: booleanFromEnv('MARKETING_STACK_STRICT_STARTUP', false),
   googleSearchConsoleDnsMaxAttempts: numberFromEnv(
     'GOOGLE_SEARCH_CONSOLE_DNS_MAX_ATTEMPTS',
     12,
