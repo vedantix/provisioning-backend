@@ -1,11 +1,40 @@
-import { Router, type Request, type Response } from 'express';
+import { Router, type CookieOptions, type Request, type Response } from 'express';
 import { AdminAuthService } from '../services/admin-auth.service';
 import { env } from '../../../config/env';
 import { UnauthorizedError } from '../../../errors/app-error';
-import { requireAdminAuthMiddleware } from '../../../middleware/require-admin-auth.middleware';
+import {
+  ADMIN_SESSION_COOKIE_NAME,
+  requireAdminAuthMiddleware,
+} from '../../../middleware/require-admin-auth.middleware';
 
 const router = Router();
 const adminAuthService = new AdminAuthService();
+
+function adminSessionCookieOptions(): CookieOptions {
+  const options: CookieOptions = {
+    httpOnly: true,
+    path: '/',
+    sameSite: 'lax',
+    secure: env.isProduction,
+    maxAge: env.adminSessionTtlHours * 60 * 60 * 1000,
+  };
+
+  if (env.isProduction) {
+    options.domain = '.vedantix.nl';
+  }
+
+  return options;
+}
+
+function setAdminSessionCookie(res: Response, token: string): void {
+  res.cookie(ADMIN_SESSION_COOKIE_NAME, token, adminSessionCookieOptions());
+}
+
+function clearAdminSessionCookie(res: Response): void {
+  const options = adminSessionCookieOptions();
+  delete options.maxAge;
+  res.clearCookie(ADMIN_SESSION_COOKIE_NAME, options);
+}
 
 function assertProvisioningApiKey(req: Request): void {
   const apiKey = String(req.header('X-Api-Key') || '').trim();
@@ -44,8 +73,21 @@ router.post('/admin/auth/login', async (req: Request, res: Response) => {
     password: String(req.body?.password || ''),
   });
 
+  setAdminSessionCookie(res, result.token);
+
   res.status(200).json({
     data: result,
+    requestId: req.ctx?.requestId,
+  });
+});
+
+router.post('/admin/auth/logout', (req: Request, res: Response) => {
+  clearAdminSessionCookie(res);
+
+  res.status(200).json({
+    data: {
+      ok: true,
+    },
     requestId: req.ctx?.requestId,
   });
 });
