@@ -17,7 +17,6 @@ export type AnalyticsProviderStatus =
 export type AnalyticsProviderName =
   | 'GOOGLE_ANALYTICS'
   | 'SEARCH_CONSOLE'
-  | 'GOOGLE_ADS'
   | 'CLARITY';
 
 export type AnalyticsProvisioningError = {
@@ -72,38 +71,6 @@ export type SearchConsoleState = {
   updatedAt?: string;
 };
 
-export type GoogleAdsConversionEvent =
-  | 'LEAD'
-  | 'WHATSAPP_CLICK'
-  | 'CONTACT_FORM'
-  | 'BOOKING'
-  | 'PURCHASE';
-
-export type GoogleAdsConversionState = {
-  event: GoogleAdsConversionEvent;
-  conversionActionId?: string;
-  conversionActionResourceName?: string;
-  conversionId?: string;
-  conversionLabel?: string;
-  conversionName: string;
-  status: AnalyticsProviderStatus;
-  enhancedConversionsForLeadsEnabled?: boolean;
-  globalSiteTag?: string;
-  eventSnippet?: string;
-  updatedAt?: string;
-  errorMessage?: string;
-};
-
-export type GoogleAdsState = {
-  customerId?: string;
-  conversionId?: string;
-  conversions: GoogleAdsConversionState[];
-  enhancedConversionsEnabled: boolean;
-  status: AnalyticsProviderStatus;
-  errorMessage?: string;
-  updatedAt?: string;
-};
-
 export type ClarityState = {
   projectId?: string;
   trackingCode?: string;
@@ -126,7 +93,6 @@ export type AnalyticsIntegrationRecord = {
   normalizedDomain: string;
   googleAnalytics: GoogleAnalyticsState;
   searchConsole: SearchConsoleState;
-  googleAds: GoogleAdsState;
   clarity: ClarityState;
   provisioningStatus: AnalyticsProvisioningStatus;
   provisioningErrors: AnalyticsProvisioningError[];
@@ -170,7 +136,6 @@ export type AnalyticsStatusResult = {
   domain?: string;
   googleAnalytics: GoogleAnalyticsState;
   searchConsole: SearchConsoleState;
-  googleAds: GoogleAdsState;
   clarity: ClarityState;
   provisioningStatus: AnalyticsProvisioningStatus;
   provisioningErrors: AnalyticsProvisioningError[];
@@ -203,10 +168,4 @@ export type ClarityProvisionResult = {
   trackingCode?: string;
   skipped?: boolean;
   reason?: string;
-};
-
-export type GoogleAdsProvisionResult = {
-  customerId: string;
-  conversionId?: string;
-  conversions: GoogleAdsConversionState[];
 };

@@ -15,7 +15,6 @@ describe('analytics deployment stages', () => {
       'ROUTE53_ALIAS',
       'GOOGLE_ANALYTICS',
       'GOOGLE_SEARCH_CONSOLE',
-      'GOOGLE_ADS',
       'CLARITY',
       'TRACKING_INJECTION',
       'GITHUB_DISPATCH',

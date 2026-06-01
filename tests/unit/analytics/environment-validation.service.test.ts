@@ -10,8 +10,6 @@ function stubBaseEnv() {
   vi.stubEnv('GOOGLE_CLIENT_ID', 'client-id');
   vi.stubEnv('GOOGLE_CLIENT_SECRET', 'client-secret');
   vi.stubEnv('GOOGLE_REFRESH_TOKEN', 'refresh-token');
-  vi.stubEnv('GOOGLE_ADS_DEVELOPER_TOKEN', 'dev-token');
-  vi.stubEnv('GOOGLE_ADS_CUSTOMER_ID', '1234567890');
 }
 
 function stubRequiredRuntimeEnv() {
@@ -34,8 +32,6 @@ describe('EnvironmentValidationService', () => {
   });
 
   it('keeps the API online when marketing settings are missing by default', async () => {
-    vi.stubEnv('GOOGLE_ADS_DEVELOPER_TOKEN', 'dev-token');
-    vi.stubEnv('GOOGLE_ADS_CUSTOMER_ID', '1234567890');
     const { EnvironmentValidationService } = await loadService();
 
     expect(() => new EnvironmentValidationService().validateStartup()).not.toThrow();
@@ -43,8 +39,6 @@ describe('EnvironmentValidationService', () => {
 
   it('fails startup when strict marketing validation is enabled', async () => {
     vi.stubEnv('MARKETING_STACK_STRICT_STARTUP', 'true');
-    vi.stubEnv('GOOGLE_ADS_DEVELOPER_TOKEN', 'dev-token');
-    vi.stubEnv('GOOGLE_ADS_CUSTOMER_ID', '1234567890');
     const { EnvironmentValidationService } = await loadService();
 
     expect(() => new EnvironmentValidationService().validateStartup()).toThrow(
@@ -55,8 +49,6 @@ describe('EnvironmentValidationService', () => {
   it('accepts encrypted OAuth credentials from Secrets Manager', async () => {
     vi.stubEnv('GOOGLE_ANALYTICS_ACCOUNT_ID', '123456');
     vi.stubEnv('GOOGLE_OAUTH_SECRET_ARN', 'arn:aws:secretsmanager:eu-west-1:123:secret:google');
-    vi.stubEnv('GOOGLE_ADS_DEVELOPER_TOKEN', 'dev-token');
-    vi.stubEnv('GOOGLE_ADS_CUSTOMER_ID', '1234567890');
     const { EnvironmentValidationService } = await loadService();
 
     const result = new EnvironmentValidationService().validateMarketingStackEnvironment();

@@ -74,6 +74,7 @@ export const env = {
     'analytics_integrations',
   )!,
   deadLetterTable: optional('DEAD_LETTER_TABLE', 'vedantix-dead-letter-jobs')!,
+  metaMarketingTable: optional('META_MARKETING_TABLE', 'vedantix-meta-marketing')!,
 
   allowedRootDomain: optional('ALLOWED_ROOT_DOMAIN', 'vedantix.nl')!,
   corsAllowedOrigins: csvFromEnv('CORS_ALLOWED_ORIGINS', [
@@ -183,19 +184,24 @@ export const env = {
     'GOOGLE_SEARCH_CONSOLE_DNS_DELAY_MS',
     10_000,
   ),
-  googleAdsApiBaseUrl: optional(
-    'GOOGLE_ADS_API_BASE_URL',
-    'https://googleads.googleapis.com',
-  )!,
-  googleAdsApiVersion: optional('GOOGLE_ADS_API_VERSION', 'v24')!,
-  googleAdsDeveloperToken: optional('GOOGLE_ADS_DEVELOPER_TOKEN'),
-  googleAdsCustomerId: optional('GOOGLE_ADS_CUSTOMER_ID'),
-  googleAdsLoginCustomerId: optional('GOOGLE_ADS_LOGIN_CUSTOMER_ID'),
-
   clarityApiBaseUrl: optional('CLARITY_API_BASE_URL'),
   clarityApiToken: optional('CLARITY_API_TOKEN'),
   clarityProjectsPath: optional('CLARITY_PROJECTS_PATH', '/projects')!,
   clarityRequired: booleanFromEnv('CLARITY_REQUIRED', false),
+
+  metaGraphApiBaseUrl: optional('META_GRAPH_API_BASE_URL', 'https://graph.facebook.com')!,
+  metaGraphApiVersion: optional('META_GRAPH_API_VERSION', 'v24.0')!,
+  metaAppId: optional('META_APP_ID'),
+  metaAppSecret: optional('META_APP_SECRET'),
+  metaRedirectUri: optional('META_REDIRECT_URI'),
+  metaTokenEncryptionSecret: optional('META_TOKEN_ENCRYPTION_SECRET'),
+  metaWebhookVerifyToken: optional('META_WEBHOOK_VERIFY_TOKEN'),
+  metaPixelId: optional('META_PIXEL_ID'),
+  metaConversionsApiTestEventCode: optional('META_CONVERSIONS_API_TEST_EVENT_CODE'),
+
+  openAiApiBaseUrl: optional('OPENAI_API_BASE_URL', 'https://api.openai.com/v1')!,
+  openAiApiKey: optional('OPENAI_API_KEY'),
+  openAiModel: optional('OPENAI_MODEL', 'gpt-5-mini')!,
 
   adminSessionSecret: optional('ADMIN_SESSION_SECRET', DEFAULT_ADMIN_SESSION_SECRET)!,
   adminSessionTtlHours: numberFromEnv('ADMIN_SESSION_TTL_HOURS', 24),

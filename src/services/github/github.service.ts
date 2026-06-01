@@ -124,10 +124,6 @@ function buildDeploymentWorkflowInputs(params: {
     params.analyticsEnv?.VITE_CLARITY_PROJECT_ID?.trim() ?? '';
   const googleSiteVerification =
     params.analyticsEnv?.VITE_GOOGLE_SITE_VERIFICATION?.trim() ?? '';
-  const googleAdsConversionId =
-    params.analyticsEnv?.VITE_GOOGLE_ADS_CONVERSION_ID?.trim() ?? '';
-  const googleAdsConversionLabels =
-    params.analyticsEnv?.VITE_GOOGLE_ADS_CONVERSION_LABELS?.trim() ?? '';
 
   if (gaMeasurementId) {
     inputs.ga_measurement_id = gaMeasurementId;
@@ -139,14 +135,6 @@ function buildDeploymentWorkflowInputs(params: {
 
   if (googleSiteVerification) {
     inputs.google_site_verification = googleSiteVerification;
-  }
-
-  if (googleAdsConversionId) {
-    inputs.google_ads_conversion_id = googleAdsConversionId;
-  }
-
-  if (googleAdsConversionLabels) {
-    inputs.google_ads_conversion_labels = googleAdsConversionLabels;
   }
 
   return inputs;

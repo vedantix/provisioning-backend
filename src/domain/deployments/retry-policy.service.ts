@@ -75,7 +75,6 @@ export class RetryPolicyService {
           'ROUTE53_ALIAS',
           'GOOGLE_ANALYTICS',
           'GOOGLE_SEARCH_CONSOLE',
-          'GOOGLE_ADS',
           'CLARITY',
           'TRACKING_INJECTION',
           'GITHUB_DISPATCH',
@@ -88,7 +87,6 @@ export class RetryPolicyService {
           'ROUTE53_ALIAS',
           'GOOGLE_ANALYTICS',
           'GOOGLE_SEARCH_CONSOLE',
-          'GOOGLE_ADS',
           'CLARITY',
           'TRACKING_INJECTION',
           'GITHUB_DISPATCH',
@@ -100,7 +98,6 @@ export class RetryPolicyService {
         return [
           'GOOGLE_ANALYTICS',
           'GOOGLE_SEARCH_CONSOLE',
-          'GOOGLE_ADS',
           'CLARITY',
           'TRACKING_INJECTION',
           'GITHUB_DISPATCH',
@@ -109,13 +106,10 @@ export class RetryPolicyService {
         ];
 
       case 'GOOGLE_ANALYTICS':
-        return ['GOOGLE_SEARCH_CONSOLE', 'GOOGLE_ADS', 'CLARITY', 'TRACKING_INJECTION', 'GITHUB_DISPATCH', 'DYNAMODB', 'SQS'];
+        return ['GOOGLE_SEARCH_CONSOLE', 'CLARITY', 'TRACKING_INJECTION', 'GITHUB_DISPATCH', 'DYNAMODB', 'SQS'];
 
       case 'GOOGLE_SEARCH_CONSOLE':
       case 'SEARCH_CONSOLE':
-        return ['GOOGLE_ADS', 'CLARITY', 'TRACKING_INJECTION', 'GITHUB_DISPATCH', 'DYNAMODB', 'SQS'];
-
-      case 'GOOGLE_ADS':
         return ['CLARITY', 'TRACKING_INJECTION', 'GITHUB_DISPATCH', 'DYNAMODB', 'SQS'];
 
       case 'CLARITY':

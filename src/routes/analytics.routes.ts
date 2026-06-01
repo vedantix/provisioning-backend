@@ -143,8 +143,7 @@ router.get(
       total: integrations.length,
       ready: integrations.filter((item) =>
         providerReady(item.googleAnalytics.status) &&
-        providerReady(item.searchConsole.status) &&
-        providerReady(item.googleAds.status),
+        providerReady(item.searchConsole.status),
       ).length,
       failed: integrations.filter((item) => item.provisioningStatus === 'FAILED').length,
       running: integrations.filter((item) =>
@@ -159,9 +158,6 @@ router.get(
         ).length,
         searchConsole: integrations.filter((item) =>
           providerReady(item.searchConsole.status),
-        ).length,
-        googleAds: integrations.filter((item) =>
-          providerReady(item.googleAds.status),
         ).length,
         clarity: integrations.filter((item) =>
           item.clarity.status === 'SUCCEEDED' || item.clarity.status === 'SKIPPED',

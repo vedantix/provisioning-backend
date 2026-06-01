@@ -46,7 +46,6 @@ export type DeploymentStage =
   | 'GOOGLE_ANALYTICS'
   | 'GOOGLE_SEARCH_CONSOLE'
   | 'SEARCH_CONSOLE'
-  | 'GOOGLE_ADS'
   | 'CLARITY'
   | 'TRACKING_INJECTION'
   | 'GITHUB_DISPATCH'
@@ -112,14 +111,6 @@ export type ManagedResources = {
   searchConsolePropertyId?: string;
   searchConsoleVerified?: boolean;
   searchConsoleVerificationRecord?: string;
-  googleAdsCustomerId?: string;
-  googleAdsConversionId?: string;
-  googleAdsConversions?: Array<{
-    event: string;
-    conversionActionId?: string;
-    conversionLabel?: string;
-    conversionName?: string;
-  }>;
   clarityProjectId?: string;
   analyticsIntegrationId?: string;
   trackingEnvironment?: Record<string, string>;

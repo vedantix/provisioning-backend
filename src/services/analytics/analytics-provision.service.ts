@@ -10,7 +10,6 @@ import {
 } from '../../domain/locks/distributed-lock.service';
 import { GoogleAnalyticsService } from './google-analytics.service';
 import { SearchConsoleService } from './search-console.service';
-import { GoogleAdsService } from './google-ads.service';
 import { ClarityService } from './clarity.service';
 import { EnvironmentValidationService } from './environment-validation.service';
 import type {
@@ -24,7 +23,6 @@ import type {
   AnalyticsRepairInput,
   AnalyticsStatusResult,
   ClarityProvisionResult,
-  GoogleAdsProvisionResult,
   GoogleAnalyticsDataStreamResult,
   GoogleAnalyticsPropertyResult,
   SearchConsoleProvisionResult,
@@ -58,7 +56,7 @@ const DASHBOARD_METRICS: AnalyticsDashboardMetricDefinition[] = [
   },
 ];
 
-type AnalyticsProvider = 'GOOGLE_ANALYTICS' | 'SEARCH_CONSOLE' | 'GOOGLE_ADS' | 'CLARITY';
+type AnalyticsProvider = 'GOOGLE_ANALYTICS' | 'SEARCH_CONSOLE' | 'CLARITY';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -100,14 +98,6 @@ function initialSearch(status: AnalyticsProviderStatus = 'NOT_STARTED') {
   return { status, verified: false };
 }
 
-function initialGoogleAds(status: AnalyticsProviderStatus = 'NOT_STARTED') {
-  return {
-    status,
-    enhancedConversionsEnabled: true,
-    conversions: [],
-  };
-}
-
 function initialClarity(status: AnalyticsProviderStatus = 'NOT_STARTED') {
   return { status };
 }
@@ -115,7 +105,6 @@ function initialClarity(status: AnalyticsProviderStatus = 'NOT_STARTED') {
 function buildTrackingEnvironment(input: {
   measurementId?: string;
   searchConsoleVerificationToken?: string;
-  googleAds?: GoogleAdsProvisionResult;
   clarityProjectId?: string;
 }): Record<string, string> {
   const envVars: Record<string, string> = {};
@@ -135,11 +124,6 @@ function buildTrackingEnvironment(input: {
       envVars.VITE_GOOGLE_SITE_VERIFICATION = verification;
       envVars.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION = verification;
     }
-  }
-
-  if (input.googleAds) {
-    const googleAdsEnv = new GoogleAdsService().buildTrackingEnvironment(input.googleAds);
-    Object.assign(envVars, googleAdsEnv);
   }
 
   if (input.clarityProjectId) {
@@ -193,7 +177,6 @@ function toStatusResult(
     domain: record?.domain,
     googleAnalytics: record?.googleAnalytics ?? initialGoogle(),
     searchConsole: record?.searchConsole ?? initialSearch(),
-    googleAds: record?.googleAds ?? initialGoogleAds(),
     clarity: record?.clarity ?? initialClarity(),
     provisioningStatus: record?.provisioningStatus ?? 'NOT_STARTED',
     provisioningErrors: record?.provisioningErrors ?? [],
@@ -203,7 +186,6 @@ function toStatusResult(
     ready: Boolean(
       record?.googleAnalytics.measurementId &&
         record?.searchConsole.verified &&
-        record?.googleAds.status === 'SUCCEEDED' &&
         (record?.clarity.status === 'SUCCEEDED' ||
           record?.clarity.status === 'SKIPPED'),
     ),
@@ -217,7 +199,6 @@ export class AnalyticsProvisionService {
     private readonly searchConsoleService = new SearchConsoleService(),
     private readonly clarityService = new ClarityService(),
     private readonly auditService = new AuditService(),
-    private readonly googleAdsService = new GoogleAdsService(),
     private readonly environmentValidationService = new EnvironmentValidationService(),
     private readonly lockService = new DistributedLockService(),
     private readonly deadLetterRepository = new DeadLetterRepository(),
@@ -241,28 +222,18 @@ export class AnalyticsProvisionService {
 
     const afterGoogle = await this.provisionGoogleAnalytics(input);
     const afterSearch = await this.provisionSearchConsole(input);
-    const afterGoogleAds = await this.provisionGoogleAds(input);
     const afterClarity = await this.provisionClarity(input);
 
     const completed: AnalyticsIntegrationRecord = {
       ...afterGoogle,
       ...afterSearch,
-      ...afterGoogleAds,
       ...afterClarity,
       googleAnalytics: afterGoogle.googleAnalytics,
       searchConsole: afterSearch.searchConsole,
-      googleAds: afterGoogleAds.googleAds,
       clarity: afterClarity.clarity,
       trackingEnvironment: buildTrackingEnvironment({
         measurementId: afterGoogle.googleAnalytics.measurementId,
         searchConsoleVerificationToken: afterSearch.searchConsole.verificationToken,
-        googleAds: afterGoogleAds.googleAds.customerId
-          ? {
-              customerId: afterGoogleAds.googleAds.customerId,
-              conversionId: afterGoogleAds.googleAds.conversionId,
-              conversions: afterGoogleAds.googleAds.conversions,
-            }
-          : undefined,
         clarityProjectId: afterClarity.clarity.projectId,
       }),
       provisioningStatus: 'SUCCEEDED',
@@ -273,7 +244,7 @@ export class AnalyticsProvisionService {
     await this.writeAudit(input, 'ANALYTICS_PROVISION_SUCCEEDED', {
       deploymentId: input.deploymentId,
       domain: normalizeDomain(input.domain),
-      providers: ['GOOGLE_ANALYTICS', 'SEARCH_CONSOLE', 'GOOGLE_ADS', 'CLARITY'],
+      providers: ['GOOGLE_ANALYTICS', 'SEARCH_CONSOLE', 'CLARITY'],
     });
     return completed;
   }
@@ -373,49 +344,6 @@ export class AnalyticsProvisionService {
     }
   }
 
-  async provisionGoogleAds(
-    input: AnalyticsProvisionInput,
-  ): Promise<AnalyticsIntegrationRecord> {
-    if (!input.skipAnalyticsLock) {
-      return this.withAnalyticsLock(input, 'google-ads', (lockedInput) =>
-        this.provisionGoogleAds({ ...lockedInput, skipAnalyticsLock: true }),
-      );
-    }
-
-    this.environmentValidationService.assertMarketingStackConfigured();
-    const record = await this.ensureRecord(input);
-
-    if (record.googleAds.status === 'SUCCEEDED' && record.googleAds.conversions.length > 0) {
-      return record;
-    }
-
-    const running = this.withProviderStatus(record, 'GOOGLE_ADS', 'RUNNING');
-    await this.persist(running, 'GOOGLE_ADS', input);
-
-    try {
-      const result = await this.withRetry(
-        () =>
-          this.googleAdsService.reconcileConversions({
-            displayName: defaultDisplayName(input),
-            domain: input.domain,
-            existingConversions: running.googleAds.conversions,
-            customerId: input.customerId,
-            deploymentId: input.deploymentId,
-          }),
-        'GOOGLE_ADS',
-        input,
-      );
-
-      const updated = this.mergeGoogleAds(running, result);
-      await this.persist(updated, 'GOOGLE_ADS', input);
-      return updated;
-    } catch (error) {
-      const failed = this.withProviderFailure(running, 'GOOGLE_ADS', error);
-      await this.persist(failed, 'GOOGLE_ADS', input);
-      throw error;
-    }
-  }
-
   async provisionClarity(
     input: AnalyticsProvisionInput,
   ): Promise<AnalyticsIntegrationRecord> {
@@ -483,13 +411,6 @@ export class AnalyticsProvisionService {
     const trackingEnvironment = buildTrackingEnvironment({
       measurementId: record.googleAnalytics.measurementId,
       searchConsoleVerificationToken: record.searchConsole.verificationToken,
-      googleAds: record.googleAds.customerId
-        ? {
-            customerId: record.googleAds.customerId,
-            conversionId: record.googleAds.conversionId,
-            conversions: record.googleAds.conversions,
-          }
-        : undefined,
       clarityProjectId: record.clarity.projectId,
     });
 
@@ -505,7 +426,6 @@ export class AnalyticsProvisionService {
     const stackSucceeded =
       record.googleAnalytics.status === 'SUCCEEDED' &&
       record.searchConsole.status === 'SUCCEEDED' &&
-      record.googleAds.status === 'SUCCEEDED' &&
       (record.clarity.status === 'SUCCEEDED' || record.clarity.status === 'SKIPPED');
     const updated: AnalyticsIntegrationRecord = {
       ...record,
@@ -598,16 +518,6 @@ export class AnalyticsProvisionService {
       searchConsole: {
         ...record.searchConsole,
         verified: false,
-        status: 'DELETED',
-        updatedAt: now,
-      },
-      googleAds: {
-        ...record.googleAds,
-        conversions: (record.googleAds?.conversions ?? []).map((conversion) => ({
-          ...conversion,
-          status: 'DELETED' as const,
-          updatedAt: now,
-        })),
         status: 'DELETED',
         updatedAt: now,
       },
@@ -741,7 +651,6 @@ export class AnalyticsProvisionService {
         deploymentId: input.deploymentId || existing.deploymentId,
         domain: input.domain || existing.domain,
         normalizedDomain: normalizeDomain(input.domain || existing.domain),
-        googleAds: existing.googleAds ?? initialGoogleAds(),
         provisioningStatus: existing.provisioningStatus ?? 'PENDING',
         provisioningErrors: existing.provisioningErrors ?? [],
         retryMetadata: existing.retryMetadata ?? {},
@@ -758,7 +667,6 @@ export class AnalyticsProvisionService {
       normalizedDomain: normalizeDomain(input.domain),
       googleAnalytics: initialGoogle(),
       searchConsole: initialSearch(),
-      googleAds: initialGoogleAds(),
       clarity: initialClarity(),
       provisioningStatus: 'NOT_STARTED',
       provisioningErrors: [],
@@ -793,13 +701,6 @@ export class AnalyticsProvisionService {
       trackingEnvironment: buildTrackingEnvironment({
         measurementId: result.measurementId,
         searchConsoleVerificationToken: record.searchConsole.verificationToken,
-        googleAds: record.googleAds.customerId
-          ? {
-              customerId: record.googleAds.customerId,
-              conversionId: record.googleAds.conversionId,
-              conversions: record.googleAds.conversions,
-            }
-          : undefined,
         clarityProjectId: record.clarity.projectId,
       }),
       provisioningStatus: 'RUNNING',
@@ -830,45 +731,10 @@ export class AnalyticsProvisionService {
       trackingEnvironment: buildTrackingEnvironment({
         measurementId: record.googleAnalytics.measurementId,
         searchConsoleVerificationToken: result.verificationToken,
-        googleAds: record.googleAds.customerId
-          ? {
-              customerId: record.googleAds.customerId,
-              conversionId: record.googleAds.conversionId,
-              conversions: record.googleAds.conversions,
-            }
-          : undefined,
         clarityProjectId: record.clarity.projectId,
       }),
       provisioningStatus: 'RUNNING',
       timeline: this.appendTimeline(record, 'SEARCH_CONSOLE', result.verified ? 'SUCCEEDED' : 'PENDING'),
-      updatedAt: now,
-    };
-  }
-
-  private mergeGoogleAds(
-    record: AnalyticsIntegrationRecord,
-    result: GoogleAdsProvisionResult,
-  ): AnalyticsIntegrationRecord {
-    const now = nowIso();
-
-    return {
-      ...record,
-      googleAds: {
-        customerId: result.customerId,
-        conversionId: result.conversionId,
-        conversions: result.conversions,
-        enhancedConversionsEnabled: true,
-        status: 'SUCCEEDED',
-        updatedAt: now,
-      },
-      trackingEnvironment: buildTrackingEnvironment({
-        measurementId: record.googleAnalytics.measurementId,
-        searchConsoleVerificationToken: record.searchConsole.verificationToken,
-        googleAds: result,
-        clarityProjectId: record.clarity.projectId,
-      }),
-      provisioningStatus: 'RUNNING',
-      timeline: this.appendTimeline(record, 'GOOGLE_ADS', 'SUCCEEDED'),
       updatedAt: now,
     };
   }
@@ -901,13 +767,6 @@ export class AnalyticsProvisionService {
       trackingEnvironment: buildTrackingEnvironment({
         measurementId: record.googleAnalytics.measurementId,
         searchConsoleVerificationToken: record.searchConsole.verificationToken,
-        googleAds: record.googleAds.customerId
-          ? {
-              customerId: record.googleAds.customerId,
-              conversionId: record.googleAds.conversionId,
-              conversions: record.googleAds.conversions,
-            }
-          : undefined,
         clarityProjectId: clarity.projectId,
       }),
       provisioningStatus: clarity.status === 'SKIPPED' ? record.provisioningStatus : 'RUNNING',
@@ -965,22 +824,6 @@ export class AnalyticsProvisionService {
       };
     }
 
-    if (provider === 'GOOGLE_ADS') {
-      return {
-        ...record,
-        googleAds: {
-          ...record.googleAds,
-          status: 'FAILED',
-          errorMessage,
-          updatedAt: now,
-        },
-        provisioningStatus: 'FAILED',
-        provisioningErrors: [...(record.provisioningErrors ?? []), provisioningError],
-        timeline: this.appendTimeline(record, provider, 'FAILED', errorMessage),
-        updatedAt: now,
-      };
-    }
-
     return {
       ...record,
       clarity: {
@@ -1018,16 +861,6 @@ export class AnalyticsProvisionService {
       return {
         ...record,
         searchConsole: { ...record.searchConsole, status, updatedAt: now },
-        provisioningStatus: status === 'RUNNING' ? 'RUNNING' : record.provisioningStatus,
-        timeline,
-        updatedAt: now,
-      };
-    }
-
-    if (provider === 'GOOGLE_ADS') {
-      return {
-        ...record,
-        googleAds: { ...record.googleAds, status, updatedAt: now },
         provisioningStatus: status === 'RUNNING' ? 'RUNNING' : record.provisioningStatus,
         timeline,
         updatedAt: now,
@@ -1135,9 +968,7 @@ export class AnalyticsProvisionService {
           ? record.googleAnalytics.status
           : provider === 'SEARCH_CONSOLE'
             ? record.searchConsole.status
-            : provider === 'GOOGLE_ADS'
-              ? record.googleAds.status
-              : record.clarity.status,
+            : record.clarity.status,
     });
   }
 

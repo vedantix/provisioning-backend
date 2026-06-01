@@ -314,8 +314,6 @@ export class DeploymentOrchestratorService {
       case 'GOOGLE_SEARCH_CONSOLE':
       case 'SEARCH_CONSOLE':
         return this.handleSearchConsole(deployment);
-      case 'GOOGLE_ADS':
-        return this.handleGoogleAds(deployment);
       case 'CLARITY':
         return this.handleClarity(deployment);
       case 'TRACKING_INJECTION':
@@ -720,42 +718,6 @@ export class DeploymentOrchestratorService {
         searchConsolePropertyId: result.propertyId,
         searchConsoleVerified: result.verified,
         searchConsoleVerificationRecord: result.verificationRecordName,
-      } satisfies Partial<ManagedResources>,
-    };
-  }
-
-  private async handleGoogleAds(
-    deployment: DeploymentRecord,
-  ): Promise<Record<string, unknown>> {
-    if (
-      deployment.managedResources.googleAdsCustomerId &&
-      deployment.managedResources.googleAdsConversions?.length
-    ) {
-      return {
-        customerId: deployment.managedResources.googleAdsCustomerId,
-        conversionId: deployment.managedResources.googleAdsConversionId,
-        conversions: deployment.managedResources.googleAdsConversions,
-        skipped: true,
-      };
-    }
-
-    const result = await this.deps.googleAds({
-      tenantId: deployment.tenantId,
-      customerId: deployment.customerId,
-      deploymentId: deployment.deploymentId,
-      domain: deployment.domain,
-      displayName: deployment.domain,
-    });
-
-    return {
-      customerId: result.customerId,
-      conversionId: result.conversionId,
-      conversions: result.conversions,
-      managedResources: {
-        analyticsIntegrationId: deployment.customerId,
-        googleAdsCustomerId: result.customerId,
-        googleAdsConversionId: result.conversionId,
-        googleAdsConversions: result.conversions,
       } satisfies Partial<ManagedResources>,
     };
   }

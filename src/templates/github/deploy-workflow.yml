@@ -36,17 +36,6 @@ on:
         required: false
         default: ""
         type: string
-      google_ads_conversion_id:
-        description: "Google Ads conversion id without AW- prefix"
-        required: false
-        default: ""
-        type: string
-      google_ads_conversion_labels:
-        description: "JSON map of Vedantix conversion event names to Google Ads labels"
-        required: false
-        default: ""
-        type: string
-
 permissions:
   contents: read
   id-token: write
@@ -94,10 +83,6 @@ jobs:
           NEXT_PUBLIC_CLARITY_PROJECT_ID: ${{ inputs.clarity_project_id }}
           VITE_GOOGLE_SITE_VERIFICATION: ${{ inputs.google_site_verification }}
           NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION: ${{ inputs.google_site_verification }}
-          VITE_GOOGLE_ADS_CONVERSION_ID: ${{ inputs.google_ads_conversion_id }}
-          NEXT_PUBLIC_GOOGLE_ADS_CONVERSION_ID: ${{ inputs.google_ads_conversion_id }}
-          VITE_GOOGLE_ADS_CONVERSION_LABELS: ${{ inputs.google_ads_conversion_labels }}
-          NEXT_PUBLIC_GOOGLE_ADS_CONVERSION_LABELS: ${{ inputs.google_ads_conversion_labels }}
         run: |
           rm -rf dist
           if [ -f package.json ] && node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts.build ? 0 : 1)"; then
@@ -121,8 +106,6 @@ jobs:
           GA_MEASUREMENT_ID: ${{ inputs.ga_measurement_id }}
           CLARITY_PROJECT_ID: ${{ inputs.clarity_project_id }}
           GOOGLE_SITE_VERIFICATION: ${{ inputs.google_site_verification }}
-          GOOGLE_ADS_CONVERSION_ID: ${{ inputs.google_ads_conversion_id }}
-          GOOGLE_ADS_CONVERSION_LABELS: ${{ inputs.google_ads_conversion_labels }}
         run: |
           node <<'NODE'
           const fs = require('fs');
@@ -134,14 +117,7 @@ jobs:
           const ga = (process.env.GA_MEASUREMENT_ID || '').trim();
           const clarity = (process.env.CLARITY_PROJECT_ID || '').trim();
           const googleSiteVerification = (process.env.GOOGLE_SITE_VERIFICATION || '').trim();
-          const googleAdsConversionId = (process.env.GOOGLE_ADS_CONVERSION_ID || '').trim();
-          let googleAdsLabels = {};
-          try {
-            googleAdsLabels = JSON.parse(process.env.GOOGLE_ADS_CONVERSION_LABELS || '{}');
-          } catch {
-            googleAdsLabels = {};
-          }
-          if (!ga && !clarity && !googleAdsConversionId && !googleSiteVerification) {
+          if (!ga && !clarity && !googleSiteVerification) {
             process.exit(0);
           }
 
@@ -155,11 +131,6 @@ jobs:
           if (ga && !html.includes(`googletagmanager.com/gtag/js?id=${ga}`)) {
             tags.push(`<script async src="https://www.googletagmanager.com/gtag/js?id=${ga}"></script>`);
             tags.push(`<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${ga}');</script>`);
-          }
-
-          if (googleAdsConversionId && !html.includes(`googletagmanager.com/gtag/js?id=AW-${googleAdsConversionId}`)) {
-            tags.push(`<script async src="https://www.googletagmanager.com/gtag/js?id=AW-${googleAdsConversionId}"></script>`);
-            tags.push(`<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','AW-${googleAdsConversionId}');window.vedantixTrackConversion=function(eventName,extra){var labels=${JSON.stringify(googleAdsLabels)};var label=labels[eventName];if(!label||typeof gtag!=='function')return;gtag('event','conversion',Object.assign({send_to:'AW-${googleAdsConversionId}/'+label},extra||{}));};document.addEventListener('submit',function(event){if(event.target&&event.target.matches('form'))window.vedantixTrackConversion('CONTACT_FORM');},true);document.addEventListener('click',function(event){var link=event.target&&event.target.closest?event.target.closest('a'):null;if(!link)return;var href=(link.getAttribute('href')||'').toLowerCase();if(href.includes('wa.me')||href.includes('whatsapp'))window.vedantixTrackConversion('WHATSAPP_CLICK');if(link.dataset&&link.dataset.vedantixConversion)window.vedantixTrackConversion(link.dataset.vedantixConversion);},true);</script>`);
           }
 
           if (clarity && !html.includes(`clarity.ms/tag/${clarity}`)) {

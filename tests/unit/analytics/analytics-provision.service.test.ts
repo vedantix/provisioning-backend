@@ -20,8 +20,6 @@ function stubRequiredEnv() {
   vi.stubEnv('GOOGLE_CLIENT_ID', 'google-client-id');
   vi.stubEnv('GOOGLE_CLIENT_SECRET', 'google-client-secret');
   vi.stubEnv('GOOGLE_REFRESH_TOKEN', 'google-refresh-token');
-  vi.stubEnv('GOOGLE_ADS_DEVELOPER_TOKEN', 'google-ads-dev-token');
-  vi.stubEnv('GOOGLE_ADS_CUSTOMER_ID', '1234567890');
 }
 
 function buildService(overrides: Record<string, unknown> = {}) {
@@ -77,36 +75,11 @@ function buildService(overrides: Record<string, unknown> = {}) {
       status: 'OPEN',
     })),
   };
-  const googleAds = {
-    reconcileConversions: vi.fn(async () => ({
-      customerId: '1234567890',
-      conversionId: '1234567890',
-      conversions: [
-        {
-          event: 'LEAD',
-          conversionActionId: '100',
-          conversionActionResourceName: 'customers/1234567890/conversionActions/100',
-          conversionId: '1234567890',
-          conversionLabel: 'leadLabel',
-          conversionName: 'Jitan Sports - Lead',
-          status: 'SUCCEEDED',
-        },
-      ],
-    })),
-    buildTrackingEnvironment: vi.fn((result: any) => ({
-      VITE_GOOGLE_ADS_CONVERSION_ID: result.conversionId,
-      NEXT_PUBLIC_GOOGLE_ADS_CONVERSION_ID: result.conversionId,
-      VITE_GOOGLE_ADS_CONVERSION_LABELS: '{"LEAD":"leadLabel"}',
-      NEXT_PUBLIC_GOOGLE_ADS_CONVERSION_LABELS: '{"LEAD":"leadLabel"}',
-    })),
-  };
-
   return {
     store,
     repository,
     googleAnalytics,
     searchConsole,
-    googleAds,
     clarity,
     deadLetter,
     service: new AnalyticsProvisionService(
@@ -115,7 +88,6 @@ function buildService(overrides: Record<string, unknown> = {}) {
       (overrides.searchConsole || searchConsole) as any,
       (overrides.clarity || clarity) as any,
       audit as any,
-      (overrides.googleAds || googleAds) as any,
       environmentValidation as any,
       (overrides.lock || lock) as any,
       (overrides.deadLetter || deadLetter) as any,
@@ -140,7 +112,7 @@ beforeEach(() => {
 
 describe('AnalyticsProvisionService', () => {
   it('provisions Google Analytics, Search Console and Clarity idempotently', async () => {
-    const { service, googleAnalytics, searchConsole, googleAds, clarity } = buildService();
+    const { service, googleAnalytics, searchConsole, clarity } = buildService();
 
     const result = await service.provisionAnalytics({
       tenantId: 'default',
@@ -161,11 +133,6 @@ describe('AnalyticsProvisionService', () => {
       verified: true,
       status: 'SUCCEEDED',
     });
-    expect(result.googleAds).toMatchObject({
-      customerId: '1234567890',
-      conversionId: '1234567890',
-      status: 'SUCCEEDED',
-    });
     expect(result.clarity).toMatchObject({
       projectId: 'clarity123',
       status: 'SUCCEEDED',
@@ -175,7 +142,6 @@ describe('AnalyticsProvisionService', () => {
       NEXT_PUBLIC_GA_MEASUREMENT_ID: 'G-ABC123',
       VITE_CLARITY_PROJECT_ID: 'clarity123',
       NEXT_PUBLIC_CLARITY_PROJECT_ID: 'clarity123',
-      VITE_GOOGLE_ADS_CONVERSION_ID: '1234567890',
       VITE_GOOGLE_SITE_VERIFICATION: 'test-token',
     });
 
@@ -190,7 +156,6 @@ describe('AnalyticsProvisionService', () => {
 
     expect(googleAnalytics.reconcileProperty).toHaveBeenCalledTimes(1);
     expect(searchConsole.reconcileProperty).toHaveBeenCalledTimes(1);
-    expect(googleAds.reconcileConversions).toHaveBeenCalledTimes(1);
     expect(clarity.reconcileProject).toHaveBeenCalledTimes(1);
   });
 

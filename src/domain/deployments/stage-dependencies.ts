@@ -74,17 +74,6 @@ export type SearchConsoleStageResult = {
   reason?: string;
 };
 
-export type GoogleAdsStageResult = {
-  customerId?: string;
-  conversionId?: string;
-  conversions: Array<{
-    event: string;
-    conversionActionId?: string;
-    conversionLabel?: string;
-    conversionName?: string;
-  }>;
-};
-
 export type ClarityStageResult = {
   projectId?: string;
   skipped?: boolean;
@@ -172,14 +161,6 @@ export interface StageDependencies {
     displayName?: string;
     hostedZoneId: string;
   }): Promise<SearchConsoleStageResult>;
-
-  googleAds(input: {
-    tenantId: string;
-    customerId: string;
-    deploymentId: string;
-    domain: string;
-    displayName?: string;
-  }): Promise<GoogleAdsStageResult>;
 
   clarity(input: {
     tenantId: string;

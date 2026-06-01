@@ -100,10 +100,6 @@ export class StagePreconditionsService {
         );
         return;
 
-      case 'GOOGLE_ADS':
-        this.assertHasDomain(deployment);
-        return;
-
       case 'CLARITY':
         this.assertHasDomain(deployment);
         return;

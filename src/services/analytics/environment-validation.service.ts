@@ -18,20 +18,13 @@ const REQUIRED_GOOGLE_OAUTH_ENV = [
   'GOOGLE_REFRESH_TOKEN',
 ] as const;
 
-const REQUIRED_ADS_ENV = [
-  'GOOGLE_ADS_DEVELOPER_TOKEN',
-  'GOOGLE_ADS_CUSTOMER_ID',
-] as const;
-
 function hasEnv(name: string): boolean {
   return Boolean(process.env[name]?.trim());
 }
 
 export class EnvironmentValidationService {
   validateMarketingStackEnvironment(): MarketingStackEnvironmentValidation {
-    const missing: string[] = [...REQUIRED_GOOGLE_ENV, ...REQUIRED_ADS_ENV].filter(
-      (name) => !hasEnv(name),
-    );
+    const missing: string[] = [...REQUIRED_GOOGLE_ENV].filter((name) => !hasEnv(name));
     const hasEncryptedOAuthSecret = hasEnv('GOOGLE_OAUTH_SECRET_ARN');
 
     if (!hasEncryptedOAuthSecret) {
@@ -45,12 +38,6 @@ export class EnvironmentValidationService {
     if (hasEncryptedOAuthSecret) {
       warnings.push(
         'GOOGLE_OAUTH_SECRET_ARN is set; Google OAuth tokens will be loaded from AWS Secrets Manager instead of plain environment variables.',
-      );
-    }
-
-    if (!env.googleAdsLoginCustomerId) {
-      warnings.push(
-        'GOOGLE_ADS_LOGIN_CUSTOMER_ID is not set; this is fine for direct customer accounts but required for manager-account access.',
       );
     }
 

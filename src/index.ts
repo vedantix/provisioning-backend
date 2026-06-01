@@ -32,6 +32,7 @@ import customersRoutes from "./modules/customers/routes/customers.routes";
 import previewRoutes from "./modules/preview/routes/preview.routes";
 import base44WebhookRoutes from "./modules/base44/routes/base44-webhook.routes";
 import adminAuthRoutes from "./modules/admin-auth/routes/admin-auth.routes";
+import metaMarketingRoutes from "./modules/meta-marketing/routes/meta-marketing.routes";
 
 import { createRateLimitMiddleware } from "./middleware/rate-limit.middleware";
 import { notFoundMiddleware } from "./middleware/not-found.middleware";
@@ -84,11 +85,17 @@ const corsMiddleware = cors({
     "Idempotency-Key",
     "X-Base44-Webhook-Secret",
     "X-Webhook-Secret",
+    "X-Hub-Signature-256",
   ],
 });
 
 app.use(corsMiddleware);
-app.use(express.json({ limit: env.requestBodyLimit }));
+app.use(express.json({
+  limit: env.requestBodyLimit,
+  verify: (req, _res, buffer) => {
+    (req as typeof req & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
+  },
+}));
 
 app.get("/health", (_req, res) => {
   res.status(200).json({ ok: true });
@@ -116,6 +123,7 @@ app.use("/api/billing", billingRoutes);
 app.use("/api/catalog", catalogRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/analytics", analyticsRoutes);
+app.use("/api/meta-marketing", metaMarketingRoutes);
 
 app.use("/api", customersRoutes);
 app.use("/api/customers", customerMailRoutes);
