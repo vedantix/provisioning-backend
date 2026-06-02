@@ -75,6 +75,7 @@ export const env = {
   )!,
   deadLetterTable: optional('DEAD_LETTER_TABLE', 'vedantix-dead-letter-jobs')!,
   metaMarketingTable: optional('META_MARKETING_TABLE', 'vedantix-meta-marketing')!,
+  migrationsTable: optional('MIGRATIONS_TABLE', 'vedantix-migrations')!,
 
   allowedRootDomain: optional('ALLOWED_ROOT_DOMAIN', 'vedantix.nl')!,
   corsAllowedOrigins: csvFromEnv('CORS_ALLOWED_ORIGINS', [
