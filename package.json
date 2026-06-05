@@ -4,7 +4,7 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
-    "build": "tsc && mkdir -p dist/templates && cp -R src/templates/. dist/templates/",
+    "build": "tsc && mkdir -p dist/templates dist/assets && cp -R src/templates/. dist/templates/ && cp -R src/assets/. dist/assets/",
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",

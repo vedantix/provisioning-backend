@@ -1,4 +1,6 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
 import { z } from 'zod';
@@ -211,6 +213,36 @@ function dataUrlToBuffer(dataUrl: string): Buffer {
   return Buffer.from(base64, 'base64');
 }
 
+function resolveLogoPath(): string | null {
+  const candidates = [
+    path.resolve(process.cwd(), 'dist/assets/vedantix_logo.png'),
+    path.resolve(process.cwd(), 'src/assets/vedantix_logo.png'),
+    path.resolve(__dirname, '../../../assets/vedantix_logo.png'),
+  ];
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
+}
+
+function drawVedantixLogo(document: PDFKit.PDFDocument): void {
+  const logoPath = resolveLogoPath();
+
+  if (logoPath) {
+    document.image(logoPath, 42, 34, {
+      width: 54,
+      height: 54,
+    });
+    return;
+  }
+
+  document
+    .roundedRect(42, 36, 44, 44, 8)
+    .fill('#0f172a')
+    .fillColor('#ffffff')
+    .fontSize(23)
+    .font('Helvetica-Bold')
+    .text('V', 58, 48);
+}
+
 export class OnlineGrowthAuditQueue {
   private readonly queued = new Set<string>();
 
@@ -411,22 +443,16 @@ export class OnlineGrowthAuditService {
     });
     const qrBuffer = dataUrlToBuffer(qrDataUrl);
 
-    document
-      .roundedRect(42, 36, 44, 44, 8)
-      .fill('#0f172a')
-      .fillColor('#ffffff')
-      .fontSize(23)
-      .font('Helvetica-Bold')
-      .text('V', 58, 48);
+    drawVedantixLogo(document);
     document
       .fillColor('#0f172a')
       .fontSize(22)
       .font('Helvetica-Bold')
-      .text('Vedantix Online Groei Audit', 102, 42)
+      .text('Vedantix Online Groei Audit', 112, 42)
       .fontSize(10)
       .fillColor('#64748b')
       .font('Helvetica')
-      .text(`${request.companyName} · ${request.websiteUrl}`, 102, 68);
+      .text(`${request.companyName} · ${request.websiteUrl}`, 112, 68);
 
     document.moveDown(3);
     document
