@@ -34,6 +34,7 @@ import base44WebhookRoutes from "./modules/base44/routes/base44-webhook.routes";
 import adminAuthRoutes from "./modules/admin-auth/routes/admin-auth.routes";
 import metaMarketingRoutes from "./modules/meta-marketing/routes/meta-marketing.routes";
 import migrationRoutes from "./modules/migrations/routes/migration.routes";
+import onlineGrowthAuditRoutes from "./modules/online-growth-audit/routes/online-growth-audit.routes";
 
 import { createRateLimitMiddleware } from "./middleware/rate-limit.middleware";
 import { notFoundMiddleware } from "./middleware/not-found.middleware";
@@ -126,6 +127,7 @@ app.use("/api/analytics", analyticsRoutes);
 app.use("/analytics", analyticsRoutes);
 app.use("/api/meta-marketing", metaMarketingRoutes);
 app.use("/api/migrations", migrationRoutes);
+app.use("/api/audit", onlineGrowthAuditRoutes);
 
 app.use("/api", customersRoutes);
 app.use("/api/customers", customerMailRoutes);

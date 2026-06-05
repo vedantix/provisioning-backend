@@ -76,6 +76,10 @@ export const env = {
   deadLetterTable: optional('DEAD_LETTER_TABLE', 'vedantix-dead-letter-jobs')!,
   metaMarketingTable: optional('META_MARKETING_TABLE', 'vedantix-meta-marketing')!,
   migrationsTable: optional('MIGRATIONS_TABLE', 'vedantix-migrations')!,
+  onlineGrowthAuditsTable: optional(
+    'ONLINE_GROWTH_AUDITS_TABLE',
+    'vedantix-online-growth-audits',
+  )!,
 
   allowedRootDomain: optional('ALLOWED_ROOT_DOMAIN', 'vedantix.nl')!,
   corsAllowedOrigins: csvFromEnv('CORS_ALLOWED_ORIGINS', [
@@ -174,6 +178,7 @@ export const env = {
   googleRefreshToken: optional('GOOGLE_REFRESH_TOKEN'),
   googleOauthSecretArn: optional('GOOGLE_OAUTH_SECRET_ARN'),
   googleAnalyticsAccountId: optional('GOOGLE_ANALYTICS_ACCOUNT_ID'),
+  googlePagespeedApiKey: optional('GOOGLE_PAGESPEED_API_KEY'),
   googleAnalyticsTimezone: optional('GOOGLE_ANALYTICS_TIMEZONE', 'Europe/Amsterdam')!,
   googleAnalyticsCurrency: optional('GOOGLE_ANALYTICS_CURRENCY', 'EUR')!,
   marketingStackStrictStartup: booleanFromEnv('MARKETING_STACK_STRICT_STARTUP', false),
