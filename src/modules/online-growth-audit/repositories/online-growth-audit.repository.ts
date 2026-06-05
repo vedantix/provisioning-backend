@@ -15,7 +15,11 @@ import type {
 } from '../types/online-growth-audit.types';
 
 const client = new DynamoDBClient({ region: env.awsRegion });
-const ddb = DynamoDBDocumentClient.from(client);
+const ddb = DynamoDBDocumentClient.from(client, {
+  marshallOptions: {
+    removeUndefinedValues: true,
+  },
+});
 
 function pk(id: string): string {
   return `AUDIT#${id}`;
