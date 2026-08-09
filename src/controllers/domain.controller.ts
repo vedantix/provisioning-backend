@@ -1,6 +1,32 @@
 import type { Request, Response } from 'express';
 import { checkDomainAvailability } from '../services/domain/domain-check.service';
 import { addDomainToDeployment } from '../services/domain/add-domain.service';
+import { inspectDomainReadOnly } from '../services/domain/domain-inspection.service';
+
+export async function inspectDomainController(req: Request, res: Response) {
+  const domain = String(req.body?.domain ?? '').trim();
+
+  if (!domain) {
+    return res.status(400).json({
+      success: false,
+      error: 'domain is required'
+    });
+  }
+
+  try {
+    const result = await inspectDomainReadOnly(domain);
+
+    return res.status(200).json({
+      success: true,
+      result
+    });
+  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Domain inspection failed'
+    });
+  }
+}
 
 export async function checkDomainController(req: Request, res: Response) {
   const domain = String(req.body?.domain ?? '').trim();
