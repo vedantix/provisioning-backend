@@ -1,0 +1,57 @@
+name: Read-only domain inspection
+
+on:
+  push:
+    paths:
+      - '.github/workflows/domain-readonly-check.yml'
+  workflow_dispatch:
+    inputs:
+      domains:
+        description: 'Space-separated domains to inspect'
+        required: false
+        default: 'revyn.nl revynapp.nl getrevyn.nl'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Inspect domains without registering anything
+        env:
+          INPUT_DOMAINS: ${{ github.event.inputs.domains }}
+        run: |
+          set -euo pipefail
+          DOMAINS="${INPUT_DOMAINS:-revyn.nl revynapp.nl getrevyn.nl}"
+          : > domain-inspection.txt
+          for DOMAIN in ${DOMAINS}; do
+            TLD=".${DOMAIN#*.}"
+            echo "DOMAIN=${DOMAIN}" | tee -a domain-inspection.txt
+            aws route53domains check-domain-availability \
+              --region us-east-1 \
+              --domain-name "${DOMAIN}" \
+              --output json | tee -a domain-inspection.txt
+            aws route53domains list-prices \
+              --region us-east-1 \
+              --tld "${TLD}" \
+              --output json | tee -a domain-inspection.txt
+            echo '---' | tee -a domain-inspection.txt
+          done
+
+      - name: Upload inspection result
+        uses: actions/upload-artifact@v4
+        with:
+          name: domain-inspection
+          path: domain-inspection.txt
+          if-no-files-found: error
