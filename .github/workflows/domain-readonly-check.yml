@@ -32,22 +32,25 @@ jobs:
         env:
           INPUT_DOMAINS: ${{ github.event.inputs.domains }}
         run: |
-          set -euo pipefail
+          set -u
           DOMAINS="${INPUT_DOMAINS:-revyn.nl revynapp.nl getrevyn.nl}"
           : > domain-inspection.txt
           for DOMAIN in ${DOMAINS}; do
             TLD=".${DOMAIN#*.}"
             echo "DOMAIN=${DOMAIN}" | tee -a domain-inspection.txt
+            echo 'AVAILABILITY:' | tee -a domain-inspection.txt
             aws route53domains check-domain-availability \
               --region us-east-1 \
               --domain-name "${DOMAIN}" \
-              --output json | tee -a domain-inspection.txt
+              --output json >> domain-inspection.txt 2>&1 || true
+            echo 'PRICING:' | tee -a domain-inspection.txt
             aws route53domains list-prices \
               --region us-east-1 \
               --tld "${TLD}" \
-              --output json | tee -a domain-inspection.txt
+              --output json >> domain-inspection.txt 2>&1 || true
             echo '---' | tee -a domain-inspection.txt
           done
+          cat domain-inspection.txt
 
       - name: Upload inspection result
         uses: actions/upload-artifact@v4
