@@ -1,10 +1,12 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type {
+  AuditScore,
   CrawlBundle,
   CrawledPage,
 } from '../../../src/modules/online-growth-audit/types/online-growth-audit.types';
 
 let services: typeof import('../../../src/modules/online-growth-audit/services/audit-modules.service');
+let markContentScoresUnverified: typeof import('../../../src/modules/online-growth-audit/services/online-growth-audit.service').markContentScoresUnverified;
 
 function stubRequiredEnv() {
   vi.stubEnv('AWS_REGION', 'eu-west-1');
@@ -92,9 +94,55 @@ function bundle(overrides: Partial<CrawlBundle> = {}): CrawlBundle {
 beforeAll(async () => {
   stubRequiredEnv();
   services = await import('../../../src/modules/online-growth-audit/services/audit-modules.service');
+  ({ markContentScoresUnverified } = await import('../../../src/modules/online-growth-audit/services/online-growth-audit.service'));
 });
 
 describe('Online Growth Audit meetmodel', () => {
+  it('weegt contentcategorieën niet als echte nullen wanneer de homepage niet is gerenderd', () => {
+    const seo: AuditScore = {
+      key: 'seo',
+      label: 'SEO Audit',
+      score: 80,
+      status: 'COMPLETED',
+      confidence: 'HIGH',
+      summary: 'SEO is meetbaar.',
+      findings: ['Title gevonden'],
+      recommendations: [],
+      evidenceItems: [],
+      measuredChecks: 1,
+      totalChecks: 1,
+    };
+    const aeo: AuditScore = {
+      ...seo,
+      key: 'aeo',
+      label: 'AEO Audit',
+      score: 0,
+      findings: [],
+      recommendations: ['Voeg FAQ toe'],
+      evidenceItems: [{
+        check: 'faq',
+        label: 'FAQ',
+        status: 'FAIL',
+        observed: 'Niet gevonden',
+        source: 'DOM',
+        weight: 100,
+      }],
+    };
+
+    const result = markContentScoresUnverified([seo, aeo], 0);
+
+    expect(result[0]).toEqual(seo);
+    expect(result[1]).toMatchObject({
+      key: 'aeo',
+      score: null,
+      status: 'UNKNOWN',
+      confidence: 'LOW',
+      measuredChecks: 0,
+      recommendations: [],
+    });
+    expect(result[1].evidenceItems[0].status).toBe('UNKNOWN');
+  });
+
   it('onderbouwt SEO met afzonderlijke controles en bestraft dubbele titles', () => {
     const input = bundle();
     input.pages[1].title = input.homepage.title;

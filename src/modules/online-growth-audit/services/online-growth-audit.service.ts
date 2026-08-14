@@ -8,6 +8,7 @@ import { BadRequestError, NotFoundError } from '../../../errors/app-error';
 import { logger } from '../../../lib/logger';
 import { OnlineGrowthAuditRepository } from '../repositories/online-growth-audit.repository';
 import type {
+  AuditCategoryKey,
   AuditConfidence,
   AuditPriority,
   AuditRequest,
@@ -39,6 +40,8 @@ import {
   TrustAuditService,
 } from './audit-modules.service';
 import { WebsiteCrawlService } from './website-crawl.service';
+
+const TARGET_HOMEPAGE_WORDS = 30;
 
 const startAuditSchema = z.object({
   tenantId: z.string().trim().min(1),
@@ -159,6 +162,53 @@ function buildRecommendations(scores: AuditScore[]): string[] {
     .flatMap((score) => score.recommendations)
     .filter((item, index, items) => items.indexOf(item) === index)
     .slice(0, 14);
+}
+
+const CONTENT_DEPENDENT_SCORE_KEYS = new Set<AuditCategoryKey>([
+  'geo',
+  'aeo',
+  'aio',
+  'blog',
+  'faq',
+  'reviews',
+  'conversion',
+  'trust',
+  'leadCapture',
+  'localSeo',
+  'contentQuality',
+  'aiVisibility',
+]);
+
+export function markContentScoresUnverified(
+  scores: AuditScore[],
+  homepageWordCount: number,
+): AuditScore[] {
+  if (homepageWordCount >= TARGET_HOMEPAGE_WORDS) return scores;
+
+  const reason = `De gerenderde homepage leverde slechts ${homepageWordCount} zichtbare woorden op; negatieve contentsignalen zijn daardoor niet betrouwbaar.`;
+  return scores.map((score) => {
+    if (!CONTENT_DEPENDENT_SCORE_KEYS.has(score.key)) return score;
+    return {
+      ...score,
+      score: null,
+      status: 'UNKNOWN',
+      confidence: 'LOW',
+      summary: `${score.summary} ${reason}`,
+      findings: [],
+      recommendations: [],
+      evidenceItems: score.evidenceItems.map((item) => ({
+        ...item,
+        status: 'UNKNOWN',
+        observed: reason,
+      })),
+      measuredChecks: 0,
+      evidence: {
+        ...(score.evidence || {}),
+        homepageWordCount,
+        contentMeasurementSuppressed: true,
+      },
+    };
+  });
 }
 
 function buildExecutiveSummary(input: {
@@ -520,7 +570,10 @@ export class OnlineGrowthAuditService {
       });
 
       const bundle = await this.crawler.crawl(request.websiteUrl);
-      const scores = await this.runModules(bundle);
+      const scores = markContentScoresUnverified(
+        await this.runModules(bundle),
+        bundle.homepage.wordCount,
+      );
       const competitors = await this.analyzeCompetitors([
         request.competitorUrl1,
         request.competitorUrl2,

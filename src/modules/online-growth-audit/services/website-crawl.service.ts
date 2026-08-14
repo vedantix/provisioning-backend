@@ -10,7 +10,10 @@ import type { CrawlBundle, CrawledPage } from '../types/online-growth-audit.type
 
 const USER_AGENT = 'VedantixOnlineGrowthAudit/3.0 (+https://vedantix.nl/online-groei-audit)';
 const MAX_PAGES = 8;
-const REQUEST_TIMEOUT_MS = 20_000;
+const REQUEST_TIMEOUT_MS = 30_000;
+const RENDERED_CONTENT_TIMEOUT_MS = 12_000;
+const TARGET_RENDERED_WORDS = 30;
+const MINIMUM_RENDERED_WORDS = 8;
 const MAX_RESPONSE_BYTES = 4_000_000;
 const CTA_PATTERN =
   /\b(contact|afspraak|plan|boek|bel|offerte|gratis|start|aanvragen|whatsapp|advies|kennismaking|proefles|intake|demo|bestel|reserveer)\b/i;
@@ -386,16 +389,50 @@ async function renderPage(browser: Browser, rawUrl: string): Promise<RawPage> {
       waitUntil: 'domcontentloaded',
       timeout: REQUEST_TIMEOUT_MS,
     });
-    await page.waitForNetworkIdle({ idleTime: 500, timeout: 5000 }).catch(() => undefined);
+    await Promise.all([
+      page.waitForNetworkIdle({ idleTime: 700, timeout: 8000 }).catch(() => undefined),
+      page
+        .waitForFunction(
+          (minimumWords) => {
+            const contentRoot =
+              document.querySelector('main') ||
+              document.querySelector('#root') ||
+              document.querySelector('#app') ||
+              document.body;
+            const text = String((contentRoot as HTMLElement | null)?.innerText || '')
+              .replace(/\s+/g, ' ')
+              .trim();
+            return text ? text.split(/\s+/).length >= minimumWords : false;
+          },
+          { timeout: RENDERED_CONTENT_TIMEOUT_MS },
+          TARGET_RENDERED_WORDS,
+        )
+        .catch(() => undefined),
+    ]);
     const finalUrl = page.url();
     await assertPublicUrl(new URL(finalUrl));
+    const html = await page.content();
+    const rendered = parsePage({
+      requestedUrl: rawUrl,
+      finalUrl,
+      statusCode: response?.status() ?? 200,
+      responseTimeMs: Date.now() - startedAt,
+      headers: response?.headers() ?? {},
+      html,
+      renderMode: 'BROWSER_RENDERED',
+    });
+    if (rendered.wordCount < MINIMUM_RENDERED_WORDS) {
+      throw new Error(
+        `JavaScript-rendering leverde slechts ${rendered.wordCount} zichtbare woorden op.`,
+      );
+    }
     return {
       requestedUrl: rawUrl,
       finalUrl,
       statusCode: response?.status() ?? 200,
       responseTimeMs: Date.now() - startedAt,
       headers: response?.headers() ?? {},
-      html: await page.content(),
+      html,
       renderMode: 'BROWSER_RENDERED',
     };
   } finally {
