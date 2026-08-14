@@ -8,6 +8,7 @@ import { BadRequestError, NotFoundError } from '../../../errors/app-error';
 import { logger } from '../../../lib/logger';
 import { OnlineGrowthAuditRepository } from '../repositories/online-growth-audit.repository';
 import type {
+  AuditConfidence,
   AuditPriority,
   AuditRequest,
   AuditResult,
@@ -56,24 +57,65 @@ function nowIso(): string {
 function normalizeUrl(rawUrl?: string): string | undefined {
   const trimmed = String(rawUrl || '').trim();
   if (!trimmed) return undefined;
-  const url = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
-  if (!['https:', 'http:'].includes(url.protocol)) {
-    throw new BadRequestError('URL protocol wordt niet ondersteund.');
+  try {
+    const url = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+    if (!['https:', 'http:'].includes(url.protocol)) {
+      throw new Error('unsupported protocol');
+    }
+    url.username = '';
+    url.password = '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    throw new BadRequestError('Vul een geldige publieke website-URL in.');
   }
-  url.hash = '';
-  return url.toString();
 }
 
 function scoreValue(scores: AuditScore[], key: AuditScore['key']): number | null {
   return scores.find((score) => score.key === key)?.score ?? null;
 }
 
-function averageKnownScores(scores: AuditScore[]): number | null {
-  const known = scores
-    .map((score) => score.score)
-    .filter((score): score is number => typeof score === 'number');
-  if (!known.length) return null;
-  return Math.round(known.reduce((sum, score) => sum + score, 0) / known.length);
+const SCORE_WEIGHTS: Record<AuditScore['key'], number> = {
+  seo: 15,
+  geo: 5,
+  aeo: 5,
+  aio: 5,
+  performance: 12,
+  analytics: 4,
+  blog: 4,
+  faq: 2,
+  backlink: 3,
+  googleBusiness: 3,
+  reviews: 4,
+  conversion: 10,
+  security: 12,
+  trust: 7,
+  leadCapture: 3,
+  localSeo: 6,
+  contentQuality: 9,
+  aiVisibility: 6,
+};
+
+function calculateOverall(scores: AuditScore[], bundle: CrawlBundle): {
+  score: number | null;
+  confidence: AuditConfidence;
+  measuredWeightPercent: number;
+} {
+  const totalWeight = scores.reduce((sum, item) => sum + SCORE_WEIGHTS[item.key], 0);
+  const known = scores.filter((item) => typeof item.score === 'number' && item.status === 'COMPLETED');
+  const measuredWeight = known.reduce((sum, item) => sum + SCORE_WEIGHTS[item.key], 0);
+  const measuredWeightPercent = totalWeight ? Math.round((measuredWeight / totalWeight) * 100) : 0;
+  const score = measuredWeight
+    ? Math.round(known.reduce((sum, item) => sum + Number(item.score) * SCORE_WEIGHTS[item.key], 0) / measuredWeight)
+    : null;
+  const browserCoverage = bundle.pages.filter((page) => page.renderMode === 'BROWSER_RENDERED').length;
+  const confidence: AuditConfidence =
+    measuredWeightPercent >= 80 && bundle.pages.length >= 4 && browserCoverage >= Math.ceil(bundle.pages.length * 0.75)
+      ? 'HIGH'
+      : measuredWeightPercent >= 60 && bundle.homepage.renderMode !== 'STATIC_FALLBACK'
+        ? 'MEDIUM'
+        : 'LOW';
+  return { score, confidence, measuredWeightPercent };
 }
 
 function buildPriorityMatrix(scores: AuditScore[]): Record<AuditPriority, string[]> {
@@ -86,7 +128,7 @@ function buildPriorityMatrix(scores: AuditScore[]): Record<AuditPriority, string
   for (const score of scores) {
     const label = score.label.replace(' Audit', '');
     if (score.score === null) {
-      matrix.OPTIMIZATION.push(`${label}: koppel externe data om dit betrouwbaar te meten.`);
+      matrix.OPTIMIZATION.push(`${label}: ${score.recommendations[0] || 'niet betrouwbaar meetbaar met alleen een websitecrawl.'}`);
     } else if (score.score < 45) {
       matrix.CRITICAL.push(`${label}: ${score.recommendations[0] || 'Verbeter dit onderdeel als eerste.'}`);
     } else if (score.score < 70) {
@@ -105,8 +147,10 @@ function buildPriorityMatrix(scores: AuditScore[]): Record<AuditPriority, string
 
 function buildQuickWins(scores: AuditScore[]): string[] {
   return scores
-    .filter((score) => score.score === null || score.score < 72)
+    .filter((score) => typeof score.score === 'number' && score.score < 72)
+    .sort((a, b) => Number(a.score) - Number(b.score))
     .flatMap((score) => score.recommendations.map((item) => `${score.label}: ${item}`))
+    .filter((item, index, items) => items.indexOf(item) === index)
     .slice(0, 8);
 }
 
@@ -122,6 +166,8 @@ function buildExecutiveSummary(input: {
   websiteUrl: string;
   overallScore: number | null;
   scores: AuditScore[];
+  confidence: AuditConfidence;
+  measuredWeightPercent: number;
 }): string {
   const weakest = input.scores
     .filter((score) => typeof score.score === 'number')
@@ -140,7 +186,20 @@ function buildExecutiveSummary(input: {
         ? 'redelijke basis met duidelijke groeikansen'
         : 'veel onbenutte groeikansen';
 
-  return `${input.companyName} heeft een ${level}. De totale Online Groei Score is ${input.overallScore}/100. De belangrijkste verbetergebieden zijn ${weakest.join(', ') || 'verdere optimalisatie'}. Door vindbaarheid, vertrouwen en conversie samen te verbeteren kan de website meer aanvragen opleveren.`;
+  const confidenceLabel = input.confidence === 'HIGH' ? 'hoog' : input.confidence === 'MEDIUM' ? 'gemiddeld' : 'beperkt';
+  return `${input.companyName} heeft volgens de gemeten website-signalen een ${level}. De gewogen Online Groei Score is ${input.overallScore}/100, met ${confidenceLabel} meetvertrouwen en ${input.measuredWeightPercent}% van het scoregewicht daadwerkelijk gemeten. De belangrijkste verbetergebieden zijn ${weakest.join(', ') || 'verdere optimalisatie'}. Dit rapport geeft kansen aan, maar garandeert geen rankings, verkeer, leads of omzet.`;
+}
+
+function buildLimitations(bundle: CrawlBundle, scores: AuditScore[]): string[] {
+  const unknown = scores.filter((score) => score.score === null).map((score) => score.label);
+  return [
+    `Steekproef: ${bundle.pages.length} van ${bundle.pagesAttempted} geselecteerde pagina’s geanalyseerd; dit is geen volledige sitecrawl.`,
+    ...(unknown.length ? [`Niet in de totaalscore opgenomen: ${unknown.join(', ')}.`] : []),
+    ...bundle.crawlWarnings,
+    'Google PageSpeed is een mobiele Lighthouse-labmeting en kan per run variëren.',
+    'Een websitecrawl kan geen posities, backlinks, Google Bedrijfsprofieldata, analytics-events of daadwerkelijke AI-vermeldingen bewijzen zonder gekoppelde databronnen.',
+    'Scores en adviezen zijn richtinggevend en vormen geen garantie op rankings, verkeer, leads of omzet.',
+  ].filter((item, index, items) => items.indexOf(item) === index).slice(0, 14);
 }
 
 async function bufferFromPdf(document: PDFKit.PDFDocument): Promise<Buffer> {
@@ -154,7 +213,7 @@ async function bufferFromPdf(document: PDFKit.PDFDocument): Promise<Buffer> {
 }
 
 function drawScoreBar(document: PDFKit.PDFDocument, label: string, score: number | null) {
-  const x = document.x;
+  const x = document.page.margins.left;
   const y = document.y + 3;
   const width = 250;
   document.fillColor('#0f172a').fontSize(9).text(label, x, y);
@@ -165,9 +224,10 @@ function drawScoreBar(document: PDFKit.PDFDocument, label: string, score: number
     );
     document.fillColor('#0f172a').fontSize(9).text(`${score}/100`, x + 392, y - 2);
   } else {
-    document.fillColor('#64748b').fontSize(9).text('UNKNOWN', x + 392, y - 2);
+    document.fillColor('#64748b').fontSize(8).text('Niet gemeten', x + 392, y - 2);
   }
-  document.moveDown(0.8);
+  document.x = x;
+  document.y = y + 17;
 }
 
 function drawRadar(document: PDFKit.PDFDocument, scores: AuditScore[]) {
@@ -243,16 +303,106 @@ function drawVedantixLogo(document: PDFKit.PDFDocument): void {
     .text('V', 58, 48);
 }
 
+function registerPdfFonts(document: PDFKit.PDFDocument): void {
+  document.registerFont(
+    'Vedantix-Regular',
+    require.resolve('@fontsource/inter/files/inter-latin-500-normal.woff'),
+  );
+  document.registerFont(
+    'Helvetica-Bold',
+    require.resolve('@fontsource/inter/files/inter-latin-700-normal.woff'),
+  );
+}
+
+function ensurePdfSpace(document: PDFKit.PDFDocument, requiredHeight: number): void {
+  if (document.y + requiredHeight > document.page.height - 68) document.addPage();
+}
+
+function drawScoreDetails(document: PDFKit.PDFDocument, score: AuditScore): void {
+  ensurePdfSpace(document, 92);
+  const scoreText = score.score === null ? 'Niet gemeten' : `${score.score}/100`;
+  const confidence = score.confidence === 'HIGH' ? 'hoog' : score.confidence === 'MEDIUM' ? 'gemiddeld' : 'beperkt';
+  document.fillColor('#0f172a').fontSize(12).font('Helvetica-Bold').text(score.label);
+  document
+    .fillColor(score.score === null ? '#64748b' : score.score >= 75 ? '#15803d' : score.score >= 55 ? '#1d4ed8' : '#c2410c')
+    .fontSize(9)
+    .text(`${scoreText} | meetvertrouwen ${confidence} | ${score.measuredChecks ?? 0}/${score.totalChecks ?? 0} controles`, { continued: false });
+  document.moveDown(0.2);
+  document.fillColor('#475569').fontSize(8.5).font('Vedantix-Regular').text(score.summary, { lineGap: 2 });
+
+  const failedEvidence = (score.evidenceItems ?? []).filter((item) => item.status === 'FAIL').slice(0, 3);
+  const passedEvidence = (score.evidenceItems ?? []).filter((item) => item.status === 'PASS').slice(0, 2);
+  for (const item of [...failedEvidence, ...passedEvidence]) {
+    ensurePdfSpace(document, 22);
+    const marker = item.status === 'PASS' ? 'OK' : 'ACTIE';
+    document
+      .fillColor(item.status === 'PASS' ? '#15803d' : '#c2410c')
+      .fontSize(7.5)
+      .font('Helvetica-Bold')
+      .text(`${marker} - ${item.label}: `, { continued: true })
+      .fillColor('#334155')
+      .font('Vedantix-Regular')
+      .text(item.observed, { lineGap: 1 });
+  }
+  if (score.recommendations?.[0]) {
+    ensurePdfSpace(document, 24);
+    document.fillColor('#0f172a').fontSize(8).font('Helvetica-Bold').text('Eerste stap: ', { continued: true });
+    document.fillColor('#334155').font('Vedantix-Regular').text(score.recommendations[0], { lineGap: 1 });
+  }
+  document.moveDown(0.7);
+}
+
+function addPdfFooters(document: PDFKit.PDFDocument): void {
+  const range = document.bufferedPageRange();
+  for (let index = 0; index < range.count; index += 1) {
+    document.switchToPage(range.start + index);
+    document.page.margins.bottom = 0;
+    const y = document.page.height - 42;
+    document
+      .moveTo(42, y - 8)
+      .lineTo(document.page.width - 42, y - 8)
+      .strokeColor('#e2e8f0')
+      .lineWidth(0.5)
+      .stroke();
+    document
+      .fillColor('#64748b')
+      .fontSize(7.5)
+      .font('Vedantix-Regular')
+      .text('Vedantix | info@vedantix.nl | +31 6 26 21 99 89 | vedantix.nl', 42, y, {
+        width: document.page.width - 160,
+        lineBreak: false,
+      })
+      .text(`Pagina ${index + 1} van ${range.count}`, document.page.width - 120, y, {
+        width: 78,
+        align: 'right',
+        lineBreak: false,
+      });
+  }
+}
+
 export class OnlineGrowthAuditQueue {
   private readonly queued = new Set<string>();
+  private readonly pending: string[] = [];
+  private active = 0;
 
-  constructor(private readonly runner: (auditId: string) => Promise<void>) {}
+  constructor(
+    private readonly runner: (auditId: string) => Promise<void>,
+    private readonly concurrency = 2,
+  ) {}
 
   enqueue(auditId: string): void {
     if (this.queued.has(auditId)) return;
     this.queued.add(auditId);
-    setImmediate(() => {
-      this.runner(auditId)
+    this.pending.push(auditId);
+    this.pump();
+  }
+
+  private pump(): void {
+    while (this.active < this.concurrency && this.pending.length) {
+      const auditId = this.pending.shift()!;
+      this.active += 1;
+      setImmediate(() => {
+        this.runner(auditId)
         .catch((error) => {
           logger.error('Online growth audit job failed', {
             auditId,
@@ -261,8 +411,11 @@ export class OnlineGrowthAuditQueue {
         })
         .finally(() => {
           this.queued.delete(auditId);
+          this.active -= 1;
+          this.pump();
         });
-    });
+      });
+    }
   }
 }
 
@@ -302,9 +455,13 @@ export class OnlineGrowthAuditService {
       });
     }
 
-    const websiteUrl = normalizeUrl(parsed.data.websiteUrl)!;
-    const competitorUrl1 = normalizeUrl(parsed.data.competitorUrl1);
-    const competitorUrl2 = normalizeUrl(parsed.data.competitorUrl2);
+    const websiteUrl = await this.crawler.validatePublicUrl(normalizeUrl(parsed.data.websiteUrl)!);
+    const competitorUrl1 = parsed.data.competitorUrl1
+      ? await this.crawler.validatePublicUrl(normalizeUrl(parsed.data.competitorUrl1)!)
+      : undefined;
+    const competitorUrl2 = parsed.data.competitorUrl2
+      ? await this.crawler.validatePublicUrl(normalizeUrl(parsed.data.competitorUrl2)!)
+      : undefined;
     const now = nowIso();
     const request: AuditRequest = {
       id: crypto.randomUUID(),
@@ -368,7 +525,7 @@ export class OnlineGrowthAuditService {
         request.competitorUrl1,
         request.competitorUrl2,
       ]);
-      const overallScore = averageKnownScores(scores);
+      const overall = calculateOverall(scores, bundle);
       const priorityMatrix = buildPriorityMatrix(scores);
       const result: AuditResult = {
         auditRequestId: request.id,
@@ -385,12 +542,22 @@ export class OnlineGrowthAuditService {
         trustScore: scoreValue(scores, 'trust'),
         localSeoScore: scoreValue(scores, 'localSeo'),
         aiVisibilityScore: scoreValue(scores, 'aiVisibility'),
-        overallScore,
+        overallScore: overall.score,
+        overallConfidence: overall.confidence,
+        measuredWeightPercent: overall.measuredWeightPercent,
+        auditedUrl: request.websiteUrl,
+        finalUrl: bundle.homepage.finalUrl,
+        pagesAnalyzed: bundle.pages.length,
+        renderedPages: bundle.pages.filter((page) => page.renderMode === 'BROWSER_RENDERED').length,
+        auditVersion: '3.0',
+        limitations: buildLimitations(bundle, scores),
         executiveSummary: buildExecutiveSummary({
           companyName: request.companyName,
           websiteUrl: request.websiteUrl,
-          overallScore,
+          overallScore: overall.score,
           scores,
+          confidence: overall.confidence,
+          measuredWeightPercent: overall.measuredWeightPercent,
         }),
         quickWins: buildQuickWins(scores),
         recommendations: buildRecommendations(scores),
@@ -412,7 +579,8 @@ export class OnlineGrowthAuditService {
       logger.info('Online growth audit completed', {
         auditId,
         tenantId: request.tenantId,
-        overallScore,
+        overallScore: overall.score,
+        overallConfidence: overall.confidence,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Audit mislukt.';
@@ -436,13 +604,23 @@ export class OnlineGrowthAuditService {
       throw new BadRequestError('Auditrapport is nog niet gereed.');
     }
 
-    const document = new PDFDocument({ size: 'A4', margin: 42 });
+    const document = new PDFDocument({
+      size: 'A4',
+      margin: 42,
+      bufferPages: true,
+      info: {
+        Title: `Vedantix Online Groei Audit - ${request.companyName}`,
+        Author: 'Vedantix',
+        Subject: 'Websitegroei, vindbaarheid, performance, security en conversie',
+      },
+    });
     const qrDataUrl = await QRCode.toDataURL('https://vedantix.nl/contact', {
       margin: 1,
       width: 140,
     });
     const qrBuffer = dataUrlToBuffer(qrDataUrl);
 
+    registerPdfFonts(document);
     drawVedantixLogo(document);
     document
       .fillColor('#0f172a')
@@ -451,51 +629,82 @@ export class OnlineGrowthAuditService {
       .text('Vedantix Online Groei Audit', 112, 42)
       .fontSize(10)
       .fillColor('#64748b')
-      .font('Helvetica')
-      .text(`${request.companyName} · ${request.websiteUrl}`, 112, 68);
+      .font('Vedantix-Regular')
+      .text(`${request.companyName} | ${result.finalUrl || request.websiteUrl}`, 112, 68);
 
     document.moveDown(3);
     document
       .fillColor('#0f172a')
       .fontSize(16)
       .font('Helvetica-Bold')
-      .text(`Online Groei Score: ${result.overallScore ?? 'UNKNOWN'}/100`);
+      .text(`Online Groei Score: ${result.overallScore ?? 'Niet gemeten'}${result.overallScore === null ? '' : '/100'}`);
+    document
+      .moveDown(0.2)
+      .fillColor('#2563eb')
+      .fontSize(9)
+      .font('Helvetica-Bold')
+      .text(`Meetvertrouwen: ${result.overallConfidence === 'HIGH' ? 'hoog' : result.overallConfidence === 'MEDIUM' ? 'gemiddeld' : 'beperkt'} | ${result.measuredWeightPercent ?? 'Onbekend'}% van het scoregewicht gemeten | ${result.pagesAnalyzed ?? 'Onbekend'} pagina’s`);
     document.moveDown(0.4);
     document
       .fillColor('#334155')
       .fontSize(10)
-      .font('Helvetica')
+      .font('Vedantix-Regular')
       .text(result.executiveSummary, { lineGap: 4 });
 
     document.moveDown();
-    document.fillColor('#0f172a').fontSize(13).font('Helvetica-Bold').text('Scorecards');
+    document.fillColor('#0f172a').fontSize(13).font('Helvetica-Bold').text('Scoreoverzicht');
     document.moveDown(0.4);
-    result.scores.slice(0, 12).forEach((score) => drawScoreBar(document, score.label, score.score));
+    result.scores.slice(0, 10).forEach((score) => drawScoreBar(document, score.label, score.score));
+
+    document.moveDown(0.4);
+    document
+      .fillColor('#64748b')
+      .fontSize(8)
+      .font('Vedantix-Regular')
+      .text('Niet gemeten onderdelen tellen niet mee in de totaalscore. Een hogere score is geen garantie op rankings, verkeer, leads of omzet.', { lineGap: 2 });
 
     document.addPage();
-    document.fillColor('#0f172a').fontSize(16).font('Helvetica-Bold').text('Radar overzicht');
+    document.fillColor('#0f172a').fontSize(16).font('Helvetica-Bold').text('Scoreoverzicht - vervolg');
+    document.moveDown(0.4);
+    result.scores.slice(10).forEach((score) => drawScoreBar(document, score.label, score.score));
+    document.moveDown(0.8);
+    document.fillColor('#0f172a').fontSize(15).font('Helvetica-Bold').text('Radaroverzicht');
     document.moveDown(0.6);
     drawRadar(document, result.scores);
 
+    ensurePdfSpace(document, 80);
     document.fillColor('#0f172a').fontSize(14).font('Helvetica-Bold').text('Prioriteitenmatrix');
+    const priorityLabels: Record<string, string> = {
+      CRITICAL: 'Kritiek',
+      IMPORTANT: 'Belangrijk',
+      OPTIMIZATION: 'Optimalisatie / nog te meten',
+    };
     for (const [priority, items] of Object.entries(result.priorityMatrix)) {
+      ensurePdfSpace(document, 38);
       document.moveDown(0.5);
-      document.fillColor('#2563eb').fontSize(11).font('Helvetica-Bold').text(priority);
+      document.fillColor('#2563eb').fontSize(11).font('Helvetica-Bold').text(priorityLabels[priority] || priority);
       if (!items.length) {
-        document.fillColor('#64748b').fontSize(9).font('Helvetica').text('Geen directe punten.');
+        document.fillColor('#64748b').fontSize(9).font('Vedantix-Regular').text('Geen directe punten.');
       }
       items.forEach((item) => {
-        document.fillColor('#334155').fontSize(9).font('Helvetica').text(`• ${item}`, {
+        ensurePdfSpace(document, 22);
+        document.fillColor('#334155').fontSize(9).font('Vedantix-Regular').text(`- ${item}`, {
           lineGap: 2,
         });
       });
     }
 
     document.addPage();
+    document.fillColor('#0f172a').fontSize(16).font('Helvetica-Bold').text('Onderbouwing per onderdeel');
+    document.moveDown(0.8);
+    result.scores.forEach((score) => drawScoreDetails(document, score));
+
+    document.addPage();
     document.fillColor('#0f172a').fontSize(16).font('Helvetica-Bold').text('Quick wins');
     result.quickWins.forEach((item) => {
+      ensurePdfSpace(document, 24);
       document.moveDown(0.25);
-      document.fillColor('#334155').fontSize(10).font('Helvetica').text(`• ${item}`, {
+      document.fillColor('#334155').fontSize(10).font('Vedantix-Regular').text(`- ${item}`, {
         lineGap: 3,
       });
     });
@@ -503,24 +712,37 @@ export class OnlineGrowthAuditService {
     document.moveDown();
     document.fillColor('#0f172a').fontSize(16).font('Helvetica-Bold').text('Aanbevelingen');
     result.recommendations.forEach((item) => {
+      ensurePdfSpace(document, 24);
       document.moveDown(0.25);
-      document.fillColor('#334155').fontSize(10).font('Helvetica').text(`• ${item}`, {
+      document.fillColor('#334155').fontSize(10).font('Vedantix-Regular').text(`- ${item}`, {
         lineGap: 3,
       });
     });
+
+    ensurePdfSpace(document, 90);
+    document.moveDown();
+    document.fillColor('#0f172a').fontSize(14).font('Helvetica-Bold').text('Meetbeperkingen');
+    for (const limitation of result.limitations ?? []) {
+      ensurePdfSpace(document, 22);
+      document.moveDown(0.2);
+      document.fillColor('#475569').fontSize(8.5).font('Vedantix-Regular').text(`- ${limitation}`, { lineGap: 2 });
+    }
 
     if (result.competitors.length) {
       document.addPage();
       document.fillColor('#0f172a').fontSize(16).font('Helvetica-Bold').text('Concurrentieanalyse');
       document.moveDown();
       result.competitors.forEach((competitor) => {
+        ensurePdfSpace(document, 46);
         document.fillColor('#0f172a').fontSize(11).font('Helvetica-Bold').text(competitor.url);
         document
           .fillColor('#334155')
           .fontSize(9)
-          .font('Helvetica')
+          .font('Vedantix-Regular')
           .text(
-            `SEO ${competitor.seoScore ?? 'UNKNOWN'} · Reviews ${competitor.reviewSignals} · FAQ ${competitor.faqCount} · Speed ${competitor.speedScore ?? 'UNKNOWN'} · Google Business ${competitor.googleBusinessSignals} · Conversie ${competitor.conversionSignals}`,
+            competitor.status === 'FAILED'
+              ? `Niet geanalyseerd: ${competitor.errorMessage || 'onbekende fout'}`
+              : `SEO ${competitor.seoScore ?? 'niet gemeten'} | On-site reviewsignalen ${competitor.reviewSignals ?? 'niet gemeten'} | FAQ ${competitor.faqCount ?? 'niet gemeten'} | PageSpeed ${competitor.speedScore ?? 'niet gemeten'} | Google Bedrijfsprofiel niet geverifieerd | Conversiesignalen ${competitor.conversionSignals ?? 'niet gemeten'} | ${competitor.pagesAnalyzed} pagina’s`,
           );
         document.moveDown(0.6);
       });
@@ -536,14 +758,18 @@ export class OnlineGrowthAuditService {
     document
       .fillColor('#334155')
       .fontSize(11)
-      .font('Helvetica')
-      .text('Bespreek de belangrijkste groeikansen en ontdek welke verbeteringen het meeste effect hebben op zichtbaarheid, vertrouwen en aanvragen.', {
+      .font('Vedantix-Regular')
+      .text('Bespreek de belangrijkste meetbare groeikansen en bepaal welke verbeteringen als eerste getest moeten worden. Vedantix geeft geen garantie op rankings, verkeer, leads of omzet.', {
         lineGap: 4,
       });
     document.moveDown(1);
     document.image(qrBuffer, { width: 120 });
     document.moveDown(0.8);
     document.fillColor('#2563eb').fontSize(12).font('Helvetica-Bold').text('vedantix.nl/contact');
+    document.moveDown(0.3);
+    document.fillColor('#334155').fontSize(10).font('Vedantix-Regular').text('info@vedantix.nl | +31 6 26 21 99 89');
+
+    addPdfFooters(document);
 
     return {
       buffer: await bufferFromPdf(document),
@@ -607,25 +833,30 @@ export class OnlineGrowthAuditService {
         const performanceScore = (await this.performance.analyze(bundle)).score;
         summaries.push({
           url: bundle.homepage.finalUrl,
+          status: performanceScore === null ? 'PARTIAL' : 'COMPLETED',
           seoScore,
           reviewSignals: bundle.pages.filter((page) => page.hasReviews || page.hasTestimonials).length,
           faqCount: bundle.pages.reduce((sum, page) => sum + page.faqCount, 0),
           speedScore: performanceScore,
-          googleBusinessSignals: bundle.pages.filter((page) => page.hasGoogleMaps).length,
+          googleBusinessSignals: null,
           conversionSignals: bundle.homepage.ctaCount +
             (bundle.homepage.hasWhatsapp ? 1 : 0) +
             (bundle.homepage.hasPhone ? 1 : 0) +
             (bundle.homepage.hasContactForm ? 1 : 0),
+          pagesAnalyzed: bundle.pages.length,
         });
       } catch (error) {
         summaries.push({
           url: rawUrl!,
+          status: 'FAILED',
           seoScore: null,
-          reviewSignals: 0,
-          faqCount: 0,
+          reviewSignals: null,
+          faqCount: null,
           speedScore: null,
-          googleBusinessSignals: 0,
-          conversionSignals: 0,
+          googleBusinessSignals: null,
+          conversionSignals: null,
+          pagesAnalyzed: 0,
+          errorMessage: error instanceof Error ? error.message : 'Concurrent kon niet worden geanalyseerd.',
         });
       }
     }
