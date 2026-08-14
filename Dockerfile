@@ -15,6 +15,9 @@ FROM node:20-alpine
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+
+RUN apk add --no-cache chromium
 
 COPY package*.json ./
 RUN npm ci --omit=dev

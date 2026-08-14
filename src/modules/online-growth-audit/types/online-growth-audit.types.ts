@@ -2,6 +2,20 @@ export type AuditStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
 
 export type AuditModuleStatus = 'COMPLETED' | 'UNKNOWN' | 'FAILED';
 
+export type AuditConfidence = 'HIGH' | 'MEDIUM' | 'LOW';
+
+export type AuditCheckStatus = 'PASS' | 'FAIL' | 'UNKNOWN';
+
+export type AuditEvidenceItem = {
+  check: string;
+  label: string;
+  status: AuditCheckStatus;
+  observed: string;
+  source: string;
+  weight: number;
+  url?: string;
+};
+
 export type AuditPriority = 'CRITICAL' | 'IMPORTANT' | 'OPTIMIZATION';
 
 export type AuditCategoryKey =
@@ -29,9 +43,13 @@ export type AuditScore = {
   label: string;
   score: number | null;
   status: AuditModuleStatus;
+  confidence: AuditConfidence;
   summary: string;
   findings: string[];
   recommendations: string[];
+  evidenceItems: AuditEvidenceItem[];
+  measuredChecks: number;
+  totalChecks: number;
   evidence?: Record<string, unknown>;
 };
 
@@ -53,12 +71,15 @@ export type AuditRequest = {
 
 export type CompetitorAuditSummary = {
   url: string;
+  status: 'COMPLETED' | 'PARTIAL' | 'FAILED';
   seoScore: number | null;
-  reviewSignals: number;
-  faqCount: number;
+  reviewSignals: number | null;
+  faqCount: number | null;
   speedScore: number | null;
-  googleBusinessSignals: number;
-  conversionSignals: number;
+  googleBusinessSignals: number | null;
+  conversionSignals: number | null;
+  pagesAnalyzed: number;
+  errorMessage?: string;
 };
 
 export type AuditResult = {
@@ -77,6 +98,14 @@ export type AuditResult = {
   localSeoScore: number | null;
   aiVisibilityScore: number | null;
   overallScore: number | null;
+  overallConfidence: AuditConfidence;
+  measuredWeightPercent: number;
+  auditedUrl: string;
+  finalUrl: string;
+  pagesAnalyzed: number;
+  renderedPages: number;
+  auditVersion: string;
+  limitations: string[];
   executiveSummary: string;
   quickWins: string[];
   recommendations: string[];
@@ -114,6 +143,8 @@ export type CrawledPage = {
   finalUrl: string;
   statusCode: number;
   responseTimeMs: number;
+  bodyBytes: number;
+  renderMode: 'STATIC_HTML' | 'BROWSER_RENDERED' | 'STATIC_FALLBACK';
   headers: Record<string, string>;
   title?: string;
   metaDescription?: string;
@@ -128,6 +159,9 @@ export type CrawledPage = {
   links: string[];
   images: Array<{ src: string; alt?: string }>;
   schemaTypes: string[];
+  invalidSchemaCount: number;
+  faqSchemaCount: number;
+  hasNoindex: boolean;
   faqCount: number;
   ctaCount: number;
   hasContactForm: boolean;
@@ -138,6 +172,13 @@ export type CrawledPage = {
   hasTestimonials: boolean;
   hasGoogleMaps: boolean;
   hasAnalytics: boolean;
+  analyticsProviders: string[];
+  hasAddress: boolean;
+  hasEmail: boolean;
+  hasLegalLinks: boolean;
+  hasSocialLinks: boolean;
+  hasReviewPlatformLink: boolean;
+  hasNamedTestimonials: boolean;
   hasRobotsTxt: boolean;
   hasSitemapXml: boolean;
 };
@@ -151,6 +192,10 @@ export type CrawlBundle = {
   pages: CrawledPage[];
   robotsAvailable: boolean;
   sitemapAvailable: boolean;
+  sitemapUrlCount: number;
+  llmsTxtAvailable: boolean;
   spfPresent: boolean;
   dmarcPresent: boolean;
+  crawlWarnings: string[];
+  pagesAttempted: number;
 };
