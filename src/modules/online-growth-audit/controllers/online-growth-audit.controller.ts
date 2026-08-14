@@ -55,6 +55,18 @@ export class OnlineGrowthAuditController {
     });
   };
 
+  rerun = async (req: Request, res: Response): Promise<void> => {
+    const result = await this.service.rerunAudit(
+      req.ctx.tenantId,
+      readAuditId(req),
+    );
+
+    res.status(202).json({
+      data: result,
+      requestId: req.ctx.requestId,
+    });
+  };
+
   downloadPdf = async (req: Request, res: Response): Promise<void> => {
     const result = await this.service.generatePdf(
       req.ctx.tenantId,
