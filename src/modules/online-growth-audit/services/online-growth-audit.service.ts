@@ -544,6 +544,22 @@ export class OnlineGrowthAuditService {
     return { request, results };
   }
 
+  async rerunAudit(
+    tenantId: string,
+    auditId: string,
+  ): Promise<{ auditId: string; status: AuditStatus }> {
+    const previous = await this.getRequiredRequest(tenantId, auditId);
+    return this.startAudit({
+      tenantId,
+      name: previous.name,
+      companyName: previous.companyName,
+      email: previous.email,
+      websiteUrl: previous.websiteUrl,
+      competitorUrl1: previous.competitorUrl1,
+      competitorUrl2: previous.competitorUrl2,
+    });
+  }
+
   async listAudits(
     tenantId: string,
     status?: AuditStatus,

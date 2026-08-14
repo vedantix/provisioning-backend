@@ -7,6 +7,7 @@ import type {
 
 let services: typeof import('../../../src/modules/online-growth-audit/services/audit-modules.service');
 let markContentScoresUnverified: typeof import('../../../src/modules/online-growth-audit/services/online-growth-audit.service').markContentScoresUnverified;
+let OnlineGrowthAuditService: typeof import('../../../src/modules/online-growth-audit/services/online-growth-audit.service').OnlineGrowthAuditService;
 
 function stubRequiredEnv() {
   vi.stubEnv('AWS_REGION', 'eu-west-1');
@@ -94,10 +95,54 @@ function bundle(overrides: Partial<CrawlBundle> = {}): CrawlBundle {
 beforeAll(async () => {
   stubRequiredEnv();
   services = await import('../../../src/modules/online-growth-audit/services/audit-modules.service');
-  ({ markContentScoresUnverified } = await import('../../../src/modules/online-growth-audit/services/online-growth-audit.service'));
+  ({
+    markContentScoresUnverified,
+    OnlineGrowthAuditService,
+  } = await import('../../../src/modules/online-growth-audit/services/online-growth-audit.service'));
 });
 
 describe('Online Growth Audit meetmodel', () => {
+  it('start een nieuwe audit met dezelfde invoer wanneer een rapport opnieuw wordt uitgevoerd', async () => {
+    const previous = {
+      id: 'old-audit-id',
+      tenantId: 'default',
+      name: 'Rishwi',
+      companyName: 'Vedantix',
+      email: 'info@vedantix.nl',
+      websiteUrl: 'https://vedantix.nl/',
+      competitorUrl1: 'https://example.nl/',
+      status: 'COMPLETED',
+      createdDate: '2026-08-14T00:00:00.000Z',
+      updatedDate: '2026-08-14T00:03:00.000Z',
+    } as const;
+    const repository = {
+      getRequest: vi.fn().mockResolvedValue(previous),
+      createRequest: vi.fn().mockResolvedValue(undefined),
+    };
+    const crawler = {
+      validatePublicUrl: vi.fn(async (url: string) => url),
+    };
+    const service = new OnlineGrowthAuditService(repository as never, crawler as never);
+    const enqueue = vi.fn();
+    (service as unknown as { queue: { enqueue: typeof enqueue } }).queue = { enqueue };
+
+    const result = await service.rerunAudit('default', previous.id);
+
+    expect(result.status).toBe('PENDING');
+    expect(result.auditId).not.toBe(previous.id);
+    expect(repository.createRequest).toHaveBeenCalledWith(expect.objectContaining({
+      id: result.auditId,
+      tenantId: previous.tenantId,
+      name: previous.name,
+      companyName: previous.companyName,
+      email: previous.email,
+      websiteUrl: previous.websiteUrl,
+      competitorUrl1: previous.competitorUrl1,
+      status: 'PENDING',
+    }));
+    expect(enqueue).toHaveBeenCalledWith(result.auditId);
+  });
+
   it('weegt contentcategorieën niet als echte nullen wanneer de homepage niet is gerenderd', () => {
     const seo: AuditScore = {
       key: 'seo',

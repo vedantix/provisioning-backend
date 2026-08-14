@@ -15,6 +15,7 @@ router.get(
   asyncHandler(controller.history),
 );
 router.post('/', asyncHandler(controller.start));
+router.post('/:id/rerun', asyncHandler(controller.rerun));
 router.get('/:id', asyncHandler(controller.detail));
 router.get('/:id/pdf', asyncHandler(controller.downloadPdf));
 

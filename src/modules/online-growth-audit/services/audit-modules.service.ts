@@ -859,7 +859,7 @@ export class BacklinkAuditService {
       confidence: 'LOW',
       summary: 'Inkomende links zijn niet uit de eigen website af te leiden; daarom toont de auditor bewust geen backlinkscore op basis van uitgaande links.',
       findings: [],
-      recommendations: ['Koppel een betrouwbare backlinkbron, bijvoorbeeld Semrush, Ahrefs of Search Console, voor verwijzende domeinen, kwaliteit en verloren links.'],
+      recommendations: ['Koppel een betrouwbare backlink-API, bijvoorbeeld Semrush, Ahrefs of Majestic, voor verwijzende domeinen, kwaliteit en verloren links.'],
       evidenceItems: [{ check: 'referring-domains', label: 'Verwijzende domeinen', status: 'UNKNOWN', observed: 'Niet gemeten zonder externe backlinkdatabron', source: 'Geen backlink-API gekoppeld', weight: 100 }],
       measuredChecks: 0,
       totalChecks: 1,
