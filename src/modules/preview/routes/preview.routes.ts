@@ -469,7 +469,7 @@ router.get(
       return res
         .status(404)
         .send(
-          "Preview target not reachable. Controleer de publieke Base44 URL in het admin panel.",
+          "Preview target not reachable. Controleer de publieke Base44 URL in de beheerconfiguratie.",
         );
     }
 
@@ -538,7 +538,7 @@ router.get(
       return res
         .status(404)
         .send(
-          "Preview target not reachable. Controleer de publieke Base44 URL in het admin panel.",
+          "Preview target not reachable. Controleer de publieke Base44 URL in de beheerconfiguratie.",
         );
     }
 

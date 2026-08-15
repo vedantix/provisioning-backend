@@ -25,7 +25,7 @@ function getDefaultPriceId(): string {
 }
 
 function getDefaultSuccessUrl(): string {
-  return process.env.STRIPE_SUCCESS_URL || 'https://vedantix.nl/admin';
+  return process.env.STRIPE_SUCCESS_URL || 'https://vedantix.nl/';
 }
 
 function getDefaultCancelUrl(): string {
