@@ -37,6 +37,14 @@ function tenantIndexPk(tenantId: string): string {
   return `TENANT#${tenantId}`;
 }
 
+function nowEpochSeconds(): number {
+  return Math.floor(Date.now() / 1_000);
+}
+
+function isExpired(record: StoredAuditRecord): boolean {
+  return typeof record.expiresAt === 'number' && record.expiresAt <= nowEpochSeconds();
+}
+
 export function auditExpiresAt(createdDate: string): number {
   const parsed = Date.parse(createdDate);
   const base = Number.isNaN(parsed) ? Date.now() : parsed;
@@ -79,6 +87,9 @@ export class OnlineGrowthAuditRepository {
     );
 
     if (!result.Item) return null;
+    const stored = result.Item as StoredAuditRecord;
+    if (isExpired(stored)) return null;
+
     const {
       pk: _pk,
       sk: _sk,
@@ -86,7 +97,7 @@ export class OnlineGrowthAuditRepository {
       tenantPk: _tenantPk,
       expiresAt: _expiresAt,
       ...request
-    } = result.Item as StoredAuditRecord;
+    } = stored;
     return request as AuditRequest;
   }
 
@@ -165,6 +176,9 @@ export class OnlineGrowthAuditRepository {
     );
 
     if (!result.Item) return null;
+    const stored = result.Item as StoredAuditRecord;
+    if (isExpired(stored)) return null;
+
     const {
       pk: _pk,
       sk: _sk,
@@ -172,7 +186,7 @@ export class OnlineGrowthAuditRepository {
       tenantPk: _tenantPk,
       expiresAt: _expiresAt,
       ...auditResult
-    } = result.Item as StoredAuditRecord;
+    } = stored;
     return auditResult as AuditResult;
   }
 
@@ -185,12 +199,13 @@ export class OnlineGrowthAuditRepository {
       new ScanCommand({
         TableName: this.tableName,
         FilterExpression: params.status
-          ? 'tenantPk = :tenantPk AND entityType = :entityType AND #status = :status'
-          : 'tenantPk = :tenantPk AND entityType = :entityType',
+          ? 'tenantPk = :tenantPk AND entityType = :entityType AND expiresAt > :now AND #status = :status'
+          : 'tenantPk = :tenantPk AND entityType = :entityType AND expiresAt > :now',
         ExpressionAttributeNames: params.status ? { '#status': 'status' } : undefined,
         ExpressionAttributeValues: {
           ':tenantPk': tenantIndexPk(params.tenantId),
           ':entityType': 'AUDIT_REQUEST',
+          ':now': nowEpochSeconds(),
           ...(params.status ? { ':status': params.status } : {}),
         },
         Limit: params.limit ?? 100,
@@ -198,7 +213,7 @@ export class OnlineGrowthAuditRepository {
     );
 
     return ((result.Items as StoredAuditRecord[] | undefined) ?? [])
-      .filter((item) => item.tenantId === params.tenantId)
+      .filter((item) => item.tenantId === params.tenantId && !isExpired(item))
       .map(({
         pk: _pk,
         sk: _sk,
