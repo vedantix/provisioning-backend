@@ -20,6 +20,8 @@ env:
   ECR_REPOSITORY: provisioning-backend
   APP_RUNNER_SERVICE_NAME: vedantix-provisioning-api
   PRODUCT_CATALOG_TABLE: product_catalog
+  ONLINE_GROWTH_AUDITS_TABLE: vedantix-online-growth-audits
+  PRODUCTION_API_BASE_URL: https://api.vedantix.nl
 
 jobs:
   predeploy-checks:
@@ -218,3 +220,106 @@ jobs:
 
           echo "Timed out waiting for App Runner deployment."
           exit 1
+
+      - name: Production audit privacy and retention smoke test
+        run: |
+          set -euo pipefail
+
+          echo "Checking production backend health..."
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent --show-error \
+              --connect-timeout 5 \
+              --max-time 15 \
+              "${PRODUCTION_API_BASE_URL}/health" >/dev/null; then
+              break
+            fi
+
+            if [ "${attempt}" -eq 20 ]; then
+              echo "Production backend health check failed after deployment."
+              exit 1
+            fi
+            sleep 5
+          done
+
+          TTL_STATUS=$(aws dynamodb describe-time-to-live \
+            --table-name "${ONLINE_GROWTH_AUDITS_TABLE}" \
+            --region "${AWS_REGION}" \
+            --query 'TimeToLiveDescription.TimeToLiveStatus' \
+            --output text)
+          TTL_ATTRIBUTE=$(aws dynamodb describe-time-to-live \
+            --table-name "${ONLINE_GROWTH_AUDITS_TABLE}" \
+            --region "${AWS_REGION}" \
+            --query 'TimeToLiveDescription.AttributeName' \
+            --output text)
+
+          if [ "${TTL_STATUS}" != "ENABLED" ] || [ "${TTL_ATTRIBUTE}" != "expiresAt" ]; then
+            echo "Audit retention TTL is not correctly configured."
+            exit 1
+          fi
+          echo "Audit retention TTL is enabled."
+
+          NOW=$(date +%s)
+          ACTIVE_COUNT=$(aws dynamodb scan \
+            --table-name "${ONLINE_GROWTH_AUDITS_TABLE}" \
+            --region "${AWS_REGION}" \
+            --select COUNT \
+            --filter-expression '#expiresAt > :now AND (#status = :pending OR #status = :running)' \
+            --expression-attribute-names '{"#expiresAt":"expiresAt","#status":"status"}' \
+            --expression-attribute-values "{\":now\":{\"N\":\"${NOW}\"},\":pending\":{\"S\":\"PENDING\"},\":running\":{\"S\":\"RUNNING\"}}" \
+            --query 'Count' \
+            --output text)
+
+          echo "Current active audit count: ${ACTIVE_COUNT}"
+          if [ "${ACTIVE_COUNT}" -gt 20 ]; then
+            echo "Audit capacity invariant violated: more than 20 active audits."
+            exit 1
+          fi
+
+          RECENT_AUDIT=$(aws dynamodb scan \
+            --table-name "${ONLINE_GROWTH_AUDITS_TABLE}" \
+            --region "${AWS_REGION}" \
+            --filter-expression '#entityType = :requestType AND #expiresAt > :now' \
+            --expression-attribute-names '{"#entityType":"entityType","#expiresAt":"expiresAt"}' \
+            --expression-attribute-values "{\":requestType\":{\"S\":\"AUDIT_REQUEST\"},\":now\":{\"N\":\"${NOW}\"}}" \
+            --projection-expression 'id, tenantId, createdDate' \
+            --output json | jq -c '.Items | sort_by(.createdDate.S) | reverse | .[0] // empty')
+
+          if [ -z "${RECENT_AUDIT}" ]; then
+            echo "No current audit record available; skipping public-detail PII assertion."
+            exit 0
+          fi
+
+          AUDIT_ID=$(printf '%s' "${RECENT_AUDIT}" | jq -r '.id.S // empty')
+          TENANT_ID=$(printf '%s' "${RECENT_AUDIT}" | jq -r '.tenantId.S // empty')
+          if [ -z "${AUDIT_ID}" ] || [ -z "${TENANT_ID}" ]; then
+            echo "Could not resolve audit smoke-test identifiers."
+            exit 1
+          fi
+
+          HTTP_CODE=$(curl --silent --show-error \
+            --connect-timeout 5 \
+            --max-time 20 \
+            --retry 4 \
+            --retry-delay 2 \
+            --retry-all-errors \
+            --output /tmp/audit-detail.json \
+            --write-out '%{http_code}' \
+            --header "X-Tenant-Id: ${TENANT_ID}" \
+            --header 'X-Actor-Id: production-deploy-smoke-test' \
+            "${PRODUCTION_API_BASE_URL}/api/audit/${AUDIT_ID}")
+
+          if [ "${HTTP_CODE}" != "200" ]; then
+            echo "Public audit detail smoke test returned HTTP ${HTTP_CODE}."
+            exit 1
+          fi
+
+          jq -e --arg auditId "${AUDIT_ID}" '
+            .data.auditId == $auditId
+            and (.data.request | has("name") | not)
+            and (.data.request | has("email") | not)
+            and (.data.request | has("tenantId") | not)
+            and (.data.request | has("id") | not)
+          ' /tmp/audit-detail.json >/dev/null
+
+          rm -f /tmp/audit-detail.json
+          echo "Production audit privacy smoke test passed."
