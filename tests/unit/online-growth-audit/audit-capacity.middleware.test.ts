@@ -1,7 +1,29 @@
 import type { NextFunction, Request, Response } from 'express';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { TooManyRequestsError } from '../../../src/errors/app-error';
-import { createAuditCapacityMiddleware } from '../../../src/modules/online-growth-audit/middleware/audit-capacity.middleware';
+
+process.env.NODE_ENV = 'test';
+process.env.AWS_REGION = 'eu-west-1';
+process.env.AWS_ACM_REGION = 'us-east-1';
+process.env.AWS_ROUTE53_HOSTED_ZONE_ID = 'ZTEST';
+process.env.GITHUB_OWNER = 'vedantix';
+process.env.GITHUB_TOKEN = 'test-token';
+process.env.PROVISIONING_API_KEY = 'test-api-key';
+process.env.SQS_QUEUE_URL = 'https://sqs.eu-west-1.amazonaws.com/123456789012/test';
+process.env.CUSTOMERS_TABLE = 'test-customers';
+process.env.DEPLOYMENTS_TABLE = 'test-deployments';
+process.env.JOBS_TABLE = 'test-jobs';
+
+type CreateAuditCapacityMiddleware =
+  typeof import('../../../src/modules/online-growth-audit/middleware/audit-capacity.middleware').createAuditCapacityMiddleware;
+
+let createAuditCapacityMiddleware: CreateAuditCapacityMiddleware;
+
+beforeAll(async () => {
+  ({ createAuditCapacityMiddleware } = await import(
+    '../../../src/modules/online-growth-audit/middleware/audit-capacity.middleware'
+  ));
+});
 
 describe('createAuditCapacityMiddleware', () => {
   it('allows an audit when capacity is available', async () => {
