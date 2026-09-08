@@ -1,8 +1,8 @@
 import type { Request, Response } from 'express';
 import { describe, expect, it, vi } from 'vitest';
-import { OnlineGrowthAuditController } from '../../src/modules/online-growth-audit/controllers/online-growth-audit.controller';
-import { OnlineGrowthAuditService } from '../../src/modules/online-growth-audit/services/online-growth-audit.service';
-import type { AuditRequest } from '../../src/modules/online-growth-audit/types/online-growth-audit.types';
+import { OnlineGrowthAuditController } from '../../../src/modules/online-growth-audit/controllers/online-growth-audit.controller';
+import { OnlineGrowthAuditService } from '../../../src/modules/online-growth-audit/services/online-growth-audit.service';
+import type { AuditRequest } from '../../../src/modules/online-growth-audit/types/online-growth-audit.types';
 
 describe('OnlineGrowthAuditController public detail', () => {
   it('does not expose name, email or tenant id in the public request payload', async () => {

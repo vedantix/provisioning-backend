@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { describe, expect, it, vi } from 'vitest';
-import { TooManyRequestsError } from '../../src/errors/app-error';
-import { createAuditCapacityMiddleware } from '../../src/modules/online-growth-audit/middleware/audit-capacity.middleware';
+import { TooManyRequestsError } from '../../../src/errors/app-error';
+import { createAuditCapacityMiddleware } from '../../../src/modules/online-growth-audit/middleware/audit-capacity.middleware';
 
 describe('createAuditCapacityMiddleware', () => {
   it('allows an audit when capacity is available', async () => {
