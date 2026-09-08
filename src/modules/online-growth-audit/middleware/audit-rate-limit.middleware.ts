@@ -40,7 +40,9 @@ function clientAddress(req: Request): string {
 
   // App Runner/proxies append the directly observed client hop to X-Forwarded-For.
   // Taking the right-most valid address avoids trusting arbitrary left-most values.
-  const proxiedClient = forwardedAddresses.at(-1);
+  const proxiedClient = forwardedAddresses.length
+    ? forwardedAddresses[forwardedAddresses.length - 1]
+    : undefined;
   if (proxiedClient) return proxiedClient;
 
   return (
