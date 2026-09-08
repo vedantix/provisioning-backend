@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { BadRequestError } from '../../../errors/app-error';
-import type { AuditStatus } from '../types/online-growth-audit.types';
+import type { AuditRequest, AuditStatus } from '../types/online-growth-audit.types';
 import { OnlineGrowthAuditService } from '../services/online-growth-audit.service';
 
 function readAuditId(req: Request): string {
@@ -16,6 +16,19 @@ function readStatus(value: unknown): AuditStatus | undefined {
     return status as AuditStatus;
   }
   throw new BadRequestError('Ongeldige auditstatus.');
+}
+
+function publicAuditRequest(request: AuditRequest) {
+  return {
+    companyName: request.companyName,
+    websiteUrl: request.websiteUrl,
+    competitorUrl1: request.competitorUrl1,
+    competitorUrl2: request.competitorUrl2,
+    createdDate: request.createdDate,
+    updatedDate: request.updatedDate,
+    completedDate: request.completedDate,
+    errorMessage: request.errorMessage,
+  };
 }
 
 export class OnlineGrowthAuditController {
@@ -48,7 +61,7 @@ export class OnlineGrowthAuditController {
       data: {
         auditId: request.id,
         status: request.status,
-        request,
+        request: publicAuditRequest(request),
         ...(results ? { results } : {}),
       },
       requestId: req.ctx.requestId,
