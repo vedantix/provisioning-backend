@@ -21,12 +21,26 @@ const ddb = DynamoDBDocumentClient.from(client, {
   },
 });
 
+const AUDIT_RETENTION_DAYS = 90;
+const AUDIT_RETENTION_MS = AUDIT_RETENTION_DAYS * 24 * 60 * 60 * 1_000;
+
+type StoredAuditRecord = AuditRecord & {
+  tenantPk?: string;
+  expiresAt?: number;
+};
+
 function pk(id: string): string {
   return `AUDIT#${id}`;
 }
 
 function tenantIndexPk(tenantId: string): string {
   return `TENANT#${tenantId}`;
+}
+
+export function auditExpiresAt(createdDate: string): number {
+  const parsed = Date.parse(createdDate);
+  const base = Number.isNaN(parsed) ? Date.now() : parsed;
+  return Math.floor((base + AUDIT_RETENTION_MS) / 1_000);
 }
 
 export class OnlineGrowthAuditRepository {
@@ -46,6 +60,7 @@ export class OnlineGrowthAuditRepository {
         Item: {
           ...record,
           tenantPk: tenantIndexPk(request.tenantId),
+          expiresAt: auditExpiresAt(request.createdDate),
         },
         ConditionExpression: 'attribute_not_exists(pk)',
       }),
@@ -64,8 +79,14 @@ export class OnlineGrowthAuditRepository {
     );
 
     if (!result.Item) return null;
-    const { pk: _pk, sk: _sk, entityType: _entityType, tenantPk: _tenantPk, ...request } =
-      result.Item as AuditRecord & { tenantPk?: string };
+    const {
+      pk: _pk,
+      sk: _sk,
+      entityType: _entityType,
+      tenantPk: _tenantPk,
+      expiresAt: _expiresAt,
+      ...request
+    } = result.Item as StoredAuditRecord;
     return request as AuditRequest;
   }
 
@@ -126,6 +147,7 @@ export class OnlineGrowthAuditRepository {
         Item: {
           ...record,
           tenantPk: tenantIndexPk(result.tenantId),
+          expiresAt: auditExpiresAt(result.createdDate),
         },
       }),
     );
@@ -143,8 +165,14 @@ export class OnlineGrowthAuditRepository {
     );
 
     if (!result.Item) return null;
-    const { pk: _pk, sk: _sk, entityType: _entityType, tenantPk: _tenantPk, ...auditResult } =
-      result.Item as AuditRecord & { tenantPk?: string };
+    const {
+      pk: _pk,
+      sk: _sk,
+      entityType: _entityType,
+      tenantPk: _tenantPk,
+      expiresAt: _expiresAt,
+      ...auditResult
+    } = result.Item as StoredAuditRecord;
     return auditResult as AuditResult;
   }
 
@@ -157,8 +185,8 @@ export class OnlineGrowthAuditRepository {
       new ScanCommand({
         TableName: this.tableName,
         FilterExpression: params.status
-          ? 'entityType = :entityType AND #status = :status'
-          : 'entityType = :entityType',
+          ? 'tenantPk = :tenantPk AND entityType = :entityType AND #status = :status'
+          : 'tenantPk = :tenantPk AND entityType = :entityType',
         ExpressionAttributeNames: params.status ? { '#status': 'status' } : undefined,
         ExpressionAttributeValues: {
           ':tenantPk': tenantIndexPk(params.tenantId),
@@ -169,9 +197,16 @@ export class OnlineGrowthAuditRepository {
       }),
     );
 
-    return ((result.Items as Array<AuditRecord & { tenantPk?: string }> | undefined) ?? [])
+    return ((result.Items as StoredAuditRecord[] | undefined) ?? [])
       .filter((item) => item.tenantId === params.tenantId)
-      .map(({ pk: _pk, sk: _sk, entityType: _entityType, tenantPk: _tenantPk, ...item }) => item as AuditRequest)
+      .map(({
+        pk: _pk,
+        sk: _sk,
+        entityType: _entityType,
+        tenantPk: _tenantPk,
+        expiresAt: _expiresAt,
+        ...item
+      }) => item as AuditRequest)
       .sort((a, b) => b.createdDate.localeCompare(a.createdDate));
   }
 }
